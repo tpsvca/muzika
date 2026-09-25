@@ -226,7 +226,7 @@ Muzika stands on work other people did first:
 Muzika is free and always will be. If it saved you some time or replaced
 something worse, you can buy me a coffee:
 
-<a href="https://www.paypal.com/donate/?business=jonas%40a777web.com&item_name=Muzika&currency_code=EUR">
+<a href="https://www.paypal.com/donate/?business=jonas%40a777web.com&item_name=Muzika&currency_code=EUR&amount=5">
   <img alt="Buy me a coffee" src="https://img.shields.io/badge/Buy%20me%20a%20coffee-PayPal-2E6F40?style=for-the-badge&logo=paypal&logoColor=white">
 </a>
 
