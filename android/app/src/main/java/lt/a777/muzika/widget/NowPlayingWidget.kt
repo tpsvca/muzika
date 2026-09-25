@@ -68,6 +68,13 @@ class NowPlayingWidget : AppWidgetProvider() {
 
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+        // A widget update rebuilds the whole RemoteViews, so the artwork has
+        // to be re-applied every time or it reverts to the placeholder. It is
+        // cached here and only refetched when the track actually changes -
+        // otherwise the periodic progress updates would hammer the network.
+        private var artUrl: String? = null
+        private var artBitmap: Bitmap? = null
+
         /** Called whenever the player changes, so the widget tracks playback. */
         fun refresh(context: Context) {
             val manager = AppWidgetManager.getInstance(context) ?: return
@@ -103,7 +110,17 @@ class NowPlayingWidget : AppWidgetProvider() {
                 R.id.widget_toggle,
                 if (MuzikaPlayer.isPlaying) "Pause" else "Play",
             )
-            views.setImageViewResource(R.id.widget_art, R.drawable.ic_widget_note)
+            val artwork = track?.thumb
+            val cached = artBitmap.takeIf { artwork != null && artwork == artUrl }
+            if (cached != null) views.setImageViewBitmap(R.id.widget_art, cached)
+            else views.setImageViewResource(R.id.widget_art, R.drawable.ic_widget_note)
+
+            // Scaled to a fixed 1000 steps rather than seconds, so the bar does
+            // not jump when a track of a different length starts.
+            val duration = MuzikaPlayer.durationMs
+            val progress = if (duration > 0)
+                (MuzikaPlayer.positionMs * 1000 / duration).toInt().coerceIn(0, 1000) else 0
+            views.setProgressBar(R.id.widget_progress, 1000, progress, false)
 
             views.setOnClickPendingIntent(
                 R.id.widget_root,
@@ -120,8 +137,9 @@ class NowPlayingWidget : AppWidgetProvider() {
 
             manager.updateAppWidget(ids, views)
 
-            val artwork = track?.thumb ?: return
-            scope.launch { loadArtwork(context, manager, ids, artwork) }
+            if (artwork != null && cached == null) {
+                scope.launch { loadArtwork(context, manager, ids, artwork) }
+            }
         }
 
         private suspend fun loadArtwork(
@@ -142,6 +160,8 @@ class NowPlayingWidget : AppWidgetProvider() {
             val safe = if (Build.VERSION.SDK_INT >= 26 &&
                 bitmap.config == Bitmap.Config.HARDWARE
             ) bitmap.copy(Bitmap.Config.ARGB_8888, false) else bitmap
+            artUrl = url
+            artBitmap = safe
             val views = RemoteViews(context.packageName, R.layout.widget_now_playing)
             views.setImageViewBitmap(R.id.widget_art, safe)
             manager.partiallyUpdateAppWidget(ids, views)

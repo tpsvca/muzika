@@ -56,6 +56,8 @@ object MuzikaPlayer {
     private var lastPositionSeen = -1L
     private var stalledSince = 0L
     private var recovering = false
+    /** Counts tick() passes, so the widget is refreshed far less often. */
+    private var widgetTicks = 0
 
     // Observed by Compose
     var current by mutableStateOf<Track?>(null)
@@ -151,6 +153,14 @@ object MuzikaPlayer {
                     positionMs = position
                     if (player.duration > 0) durationMs = player.duration
                     watchForStall(position)
+                    // The widget's progress bar has to be pushed to the
+                    // launcher; every 500ms would be wasteful, so it moves in
+                    // ~3s steps, which is under half a percent of a typical
+                    // track. Costs nothing when no widget is placed.
+                    if (isPlaying && ++widgetTicks >= 6) {
+                        widgetTicks = 0
+                        notifyWidget()
+                    }
                 }
                 kotlinx.coroutines.delay(500)
             }

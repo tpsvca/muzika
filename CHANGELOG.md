@@ -1,3 +1,21 @@
+## 2026-09-25 — Progress bar on the home-screen widget
+
+### Added
+- **What**: the now-playing widget shows a progress bar for the current track
+- **How it keeps moving**: a widget is not a live view — it only redraws when something pushes an update. The player therefore refreshes it on a timer while playing, in ~3 second steps (under half a percent of a typical track) rather than the 500 ms of the internal tick, because each update is an IPC to the launcher.
+- **What**: widget artwork is cached and re-applied on every update
+- **Why**: an update rebuilds the whole RemoteViews, so without caching the cover would revert to the placeholder on every refresh — and refetching it three times a minute would be wasteful.
+- **What**: `onTaskRemoved` now defers to Media3 when playback is still running, instead of swallowing the call and leaving its foreground bookkeeping inconsistent.
+
+### Verified on the device
+- Widget rendered on the home screen with cover art, title, artist, controls and the bar
+- The bar **moves**: measured 352 → 552 accent-coloured pixels across 25 seconds of playback
+
+### Open, and not fixed by this change
+Playback still stops when the app is backgrounded on the Pixel. Two different proximate causes appeared in the logs, so this needs more work rather than a guess:
+- `ActivityManager: Stopping service due to app idle … PlaybackService` — the service was reaped, which should not happen to a foreground service
+- a later run instead **paused** at a fixed position while the buffer kept filling, coincident with `getNewOutputDevices … AUDIO_DEVICE_OUT_SPEAKER`, i.e. an audio route change tripping the becoming-noisy handling
+
 ## 2026-09-25 — Music stopped mid-song and never recovered
 
 ### Fixed

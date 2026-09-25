@@ -44,7 +44,11 @@ class PlaybackService : MediaSessionService() {
         val player = session?.player
         if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
             stopSelf()
+            return
         }
+        // Still playing: hand back to Media3 rather than swallowing the call,
+        // so it keeps its own foreground bookkeeping straight.
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
