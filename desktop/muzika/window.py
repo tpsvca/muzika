@@ -9,6 +9,7 @@ import weakref
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
 from . import api as api_mod
+from . import sources as source_mod
 from . import sync as sync_mod
 from . import tasks
 from .library import LibraryPage
@@ -80,6 +81,8 @@ class MuzikaWindow(Adw.ApplicationWindow):
         if sync_mod.sync_folder() is not None:
             GLib.idle_add(lambda: (self.sync_library(quiet=True), False)[1])
         self.watch_sync_file()
+        # Warm the SoundCloud client id so the first search does not pay for it.
+        tasks.run_async(source_mod.warm_up, None, lambda _exc: None)
         self.activate_destination("home")
 
     # ----------------------------------------------------------------- sidebar

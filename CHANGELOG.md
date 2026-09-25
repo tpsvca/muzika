@@ -1,3 +1,20 @@
+## 2026-09-25 — SoundCloud on the desktop: 2.9s to 0.3s
+
+### Fixed
+- **What**: SoundCloud search on the desktop took 1.5-2.9 s, against 72 ms for the same search on Android
+- **Why**: the desktop went through yt-dlp's `scsearch`, which spins up a full extractor to do what is one HTTP request. It now calls the same API SoundCloud's own website calls, reading the public web client id out of the script bundles the homepage loads — the way the site itself obtains it — and caching it for the life of the process. The id is warmed in the background at startup, so even the first search does not pay for it.
+- yt-dlp remains the fallback: if SoundCloud changes and the API path fails, the source degrades to slow rather than disappearing.
+- Results now carry real durations and 300 px artwork, which `scsearch`'s flat extraction did not provide.
+
+### Measured
+
+| | Before | After |
+|---|---|---|
+| SoundCloud search | 1,522–2,872 ms | **307 ms** (1,048 ms if the id is cold) |
+| SoundCloud + Bandcamp together | 1,522–2,872 ms | **729 ms** |
+
+Playback was re-checked: a SoundCloud result still resolves to a playable stream (809 ms), and that path is cached and prefetched like every other source.
+
 ## 2026-09-25 — Desktop speed, song loading, and live updates
 
 ### Fixed — speed
