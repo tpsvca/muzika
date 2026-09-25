@@ -1,3 +1,18 @@
+// The version comes from the git tag in CI (-PmuzikaVersion=1.2.3). Android
+// refuses an update whose versionCode is not strictly higher than the
+// installed one, so it is derived from the same string rather than being a
+// hand-maintained number that is guaranteed to be forgotten.
+val muzikaVersionName: String = (findProperty("muzikaVersion") as String?) ?: "1.0.0"
+val muzikaVersionCode: Int = muzikaVersionName
+    .substringBefore('-')          // tolerate 1.2.3-beta
+    .split('.')
+    .let { parts ->
+        val major = parts.getOrNull(0)?.toIntOrNull() ?: 1
+        val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+        major * 10_000 + minor * 100 + patch
+    }
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,8 +27,8 @@ android {
         applicationId = "lt.a777.muzika"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = muzikaVersionCode
+        versionName = muzikaVersionName
     }
 
     // Release builds are signed from repo secrets in CI. Locally, and for

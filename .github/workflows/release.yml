@@ -42,7 +42,7 @@ jobs:
           MUZIKA_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           MUZIKA_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           MUZIKA_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew --no-daemon assembleRelease "-PmuzikaVersion=${GITHUB_REF_NAME#v}"
 
       - name: Collect and verify the APK
         run: |
