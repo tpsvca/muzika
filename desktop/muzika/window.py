@@ -73,7 +73,7 @@ class MuzikaWindow(Adw.ApplicationWindow):
 
         self.player.connect("playback-error", lambda _p, message: self.toast(message))
         self.player.connect("track-changed", lambda *_: self._sync_song_rows())
-        self.player.connect("track-changed", lambda *_: self.refresh_sidebar())
+        self.player.connect("track-changed", lambda *_: self._on_track_changed())
         self.player.connect("queue-changed", lambda *_: self.refresh_sidebar())
         self._add_breakpoints()
         self._install_shortcuts()
@@ -155,6 +155,12 @@ class MuzikaWindow(Adw.ApplicationWindow):
         row.set_activatable(True)
         row.connect("activated", lambda _r: on_activate())
         return row
+
+    def _on_track_changed(self) -> None:
+        self.refresh_sidebar()
+        # Home's "Recently played" is now out of date, but redrawing it under
+        # someone who is reading the page is worse than a stale tile.
+        self._home.refresh_mine(immediate=False)
 
     def refresh_sidebar(self) -> None:
         """Rebuild the context panel under the destination list."""
@@ -312,6 +318,11 @@ class MuzikaWindow(Adw.ApplicationWindow):
     def open_mood(self, mood: dict) -> None:
         self._nav.push(MoodPage(self, mood))
 
+    def open_library_tab(self, name: str) -> None:
+        """Jump to one of the Library tabs - Home's "See all" links here."""
+        self.activate_destination("library")
+        self._library.show_tab(name)
+
     def open_local_playlist(self, playlist_id: int) -> None:
         self._nav.push(LocalPlaylistPage(self, playlist_id))
         if self._split.get_collapsed():
@@ -364,6 +375,7 @@ class MuzikaWindow(Adw.ApplicationWindow):
 
     def refresh_library(self) -> None:
         self._library.reload()
+        self._home.refresh_mine()
         self.refresh_sidebar()
         self._schedule_export()
 

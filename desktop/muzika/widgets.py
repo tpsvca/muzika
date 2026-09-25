@@ -13,6 +13,7 @@ PLACEHOLDER = {
     api_mod.ALBUM: "media-optical-symbolic",
     api_mod.ARTIST: "avatar-default-symbolic",
     api_mod.PLAYLIST: "view-list-symbolic",
+    "local_playlist": "view-list-bullet-symbolic",
 }
 
 
@@ -196,14 +197,32 @@ class Tile(Gtk.Button):
 class Shelf(Gtk.Box):
     """A titled horizontal row of tiles, as on the YouTube Music home page."""
 
-    def __init__(self, title: str, items: list[dict], on_activate, tile_size: int = 150):
+    def __init__(self, title: str, items: list[dict], on_activate, tile_size: int = 150,
+                 action: Gtk.Widget | None = None, empty: str | None = None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.add_css_class("shelf")
 
         heading = Gtk.Label(label=title, xalign=0.0)
         heading.add_css_class("title-4")
         heading.set_margin_start(4)
-        self.append(heading)
+        heading.set_hexpand(True)
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header.append(heading)
+        if action is not None:
+            header.set_margin_end(4)
+            header.append(action)
+        self.append(header)
+
+        # An empty shelf explains itself rather than leaving a gap under a
+        # heading, which reads as something that failed to load.
+        if not items and empty is not None:
+            hint = Gtk.Label(label=empty, xalign=0.0)
+            hint.add_css_class("dim-label")
+            hint.set_margin_start(4)
+            hint.set_margin_bottom(8)
+            hint.set_wrap(True)
+            self.append(hint)
+            return
 
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         for item in items:

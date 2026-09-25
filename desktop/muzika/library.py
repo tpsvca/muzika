@@ -64,6 +64,11 @@ class LibraryPage(BasePage):
 
     # ------------------------------------------------------------------ views
 
+    def show_tab(self, name: str) -> None:
+        """Open the Library on a particular tab, for links from elsewhere."""
+        if self._stack.get_child_by_name(name) is not None:
+            self._stack.set_visible_child_name(name)
+
     def _tab_slot(self, name: str) -> Adw.Bin:
         return getattr(self, f"_slot_{name}")
 

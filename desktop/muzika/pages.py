@@ -72,15 +72,22 @@ class ShelvesPage(BasePage):
         refresh.connect("clicked", lambda _b: self.reload())
         self._header.pack_end(refresh)
         self._loaded = False
+        self._shelves: list[dict] = []
 
     def fetch(self) -> list[dict]:
         raise NotImplementedError
 
     def reload(self) -> None:
         self._loaded = True
+        self._error: Exception | None = None
         self.show_loading()
-        tasks.run_async(self.fetch, self._render,
-                        lambda exc: self.show_error(str(exc), self.reload))
+        tasks.run_async(self.fetch, self._render, self._on_failed)
+
+    def _on_failed(self, exc: Exception) -> None:
+        # Not straight to the error screen: a page with content of its own
+        # renders that and reports the failure inline instead.
+        self._error = exc
+        self._render([])
 
     def ensure_loaded(self) -> None:
         if not self._loaded:
@@ -90,6 +97,75 @@ class ShelvesPage(BasePage):
         return []
 
     def _render(self, shelves: list[dict]) -> None:
+        if shelves:
+            self._shelves = shelves
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        box.set_margin_top(12)
+        box.set_margin_bottom(24)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        extras = self.extra_widgets()
+        for widget in extras:
+            box.append(widget)
+        if not shelves:
+            # Your own playlists and history do not come from YouTube Music, so
+            # they must not disappear when it is down. Only a page with nothing
+            # of its own to show falls back to the error screen.
+            if not extras:
+                self.show_error(
+                    str(getattr(self, "_error", None)
+                        or "YouTube Music returned nothing for this page."),
+                    self.reload)
+                return
+            box.append(self._offline_notice())
+        for shelf in shelves:
+            box.append(Shelf(shelf["title"], shelf["items"], self.ctx.open_item))
+        self.show_content(self.scrolled(box, clamp=False))
+
+    def _offline_notice(self) -> Gtk.Widget:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        row.add_css_class("card")
+        for margin in ("top", "bottom", "start", "end"):
+            getattr(row, f"set_margin_{margin}")(12)
+        icon = Gtk.Image.new_from_icon_name("network-offline-symbolic")
+        icon.add_css_class("dim-label")
+        row.append(icon)
+        label = Gtk.Label(label="Recommendations are unavailable right now.", xalign=0.0)
+        if getattr(self, "_error", None) is not None:
+            label.set_tooltip_text(str(self._error))
+        label.add_css_class("dim-label")
+        label.set_hexpand(True)
+        label.set_wrap(True)
+        row.append(label)
+        retry = Gtk.Button(label="Try again")
+        retry.add_css_class("pill")
+        retry.connect("clicked", lambda _b: self.reload())
+        row.append(retry)
+        return row
+
+
+class HomePage(ShelvesPage):
+    """YouTube Music's recommendations, under your own listening.
+
+    What you already have loads from SQLite in a millisecond; the shelves
+    below it are a network round trip. Rendering your own sections first
+    means Home is useful the instant it opens, and stays useful when
+    YouTube Music is unreachable.
+    """
+
+    RECENT_LIMIT = 12
+    PLAYLIST_LIMIT = 12
+
+    def __init__(self, ctx):
+        super().__init__(ctx, "Home")
+        self._recent: list[dict] = []
+        self._mine_stale = False
+
+    def fetch(self):
+        return self.ctx.api.home()
+
+    def show_loading(self, message: str = "Loading\u2026") -> None:
+        """Your own sections first, a spinner only where the network is."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
         box.set_margin_top(12)
         box.set_margin_bottom(24)
@@ -97,20 +173,69 @@ class ShelvesPage(BasePage):
         box.set_margin_end(12)
         for widget in self.extra_widgets():
             box.append(widget)
-        if not shelves:
-            self.show_error("YouTube Music returned nothing for this page.", self.reload)
-            return
-        for shelf in shelves:
-            box.append(Shelf(shelf["title"], shelf["items"], self.ctx.open_item))
+        box.append(LoadingView("Loading recommendations\u2026"))
         self.show_content(self.scrolled(box, clamp=False))
 
+    def refresh_mine(self, immediate: bool = True) -> None:
+        """Pick up a playlist change or a new play, without the network.
 
-class HomePage(ShelvesPage):
-    def __init__(self, ctx):
-        super().__init__(ctx, "Home")
+        Re-fetching the recommendations to show one new tile would be waste,
+        and re-rendering while someone is scrolling Home would throw them
+        back to the top. So a track change only marks the page stale and is
+        picked up the next time Home is opened; a deliberate change the user
+        just made is shown at once.
+        """
+        if not self._loaded:
+            return
+        self._mine_stale = True
+        if immediate and self.get_mapped():
+            self._render_cached()
 
-    def fetch(self):
-        return self.ctx.api.home()
+    def ensure_loaded(self) -> None:
+        if not self._loaded:
+            self.reload()
+        elif self._mine_stale:
+            self._render_cached()
+
+    def _render_cached(self) -> None:
+        self._mine_stale = False
+        self._render(self._shelves)
+
+    def extra_widgets(self):
+        return [self._recent_shelf(), self._playlists_shelf()]
+
+    # ------------------------------------------------------------- my stuff
+
+    def _recent_shelf(self) -> Gtk.Widget:
+        self._recent = self.ctx.store.history(limit=self.RECENT_LIMIT)
+        action = None
+        if self._recent:
+            action = Gtk.Button(label="See all")
+            action.add_css_class("flat")
+            action.connect("clicked",
+                           lambda _b: self.ctx.open_library_tab("history"))
+        return Shelf("Recently played", self._recent, self._play_recent,
+                     action=action,
+                     empty="Songs you play show up here.")
+
+    def _play_recent(self, item: dict) -> None:
+        """Play the whole shelf from the tile you clicked, not just that song."""
+        index = next((i for i, track in enumerate(self._recent)
+                      if track.get("id") == item.get("id")), 0)
+        self.ctx.play_tracks(self._recent, index, shuffle=False)
+
+    def _playlists_shelf(self) -> Gtk.Widget:
+        playlists = self.ctx.store.playlists()[:self.PLAYLIST_LIMIT]
+        action = Gtk.Button.new_from_icon_name("document-new-symbolic")
+        action.add_css_class("flat")
+        action.set_tooltip_text("New playlist")
+        action.connect("clicked", lambda _b: self.ctx.new_playlist())
+        return Shelf("My playlists", playlists, self._open_playlist,
+                     action=action,
+                     empty="Make one, then add songs with \u201cAdd to playlist\u201d.")
+
+    def _open_playlist(self, item: dict) -> None:
+        self.ctx.open_local_playlist(item["playlist_id"])
 
 
 class ExplorePage(ShelvesPage):

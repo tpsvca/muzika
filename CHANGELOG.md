@@ -1,3 +1,23 @@
+## 2026-09-25 — Recently played and My playlists on the desktop Home page
+
+### Added
+- **What**: Home now opens with two sections of your own — **Recently played** (last 12 songs, newest first) and **My playlists** (local playlists, most recently changed first) — above YouTube Music's recommendations
+- **Why**: your own listening was reachable only through Library tabs, or a sidebar list that is replaced by the queue as soon as anything plays
+- Clicking a recent tile plays **the whole shelf from that track**, not just the one song, so it behaves like a queue rather than a one-shot
+- **See all** on Recently played opens the Library's History tab; **+** on My playlists creates one
+- Both sections render **before the network answers**. They come from SQLite, so Home is useful the instant it opens instead of showing a full-page spinner; only the recommendations below sit under a spinner.
+
+### Fixed
+- **What**: when YouTube Music failed or returned nothing, the whole Home and Explore page was replaced by an error screen
+- **Why**: `extra_widgets()` was built and then discarded on the empty path. Explore lost its mood pills the same way. Your own playlists and history do not come from YouTube Music and must not disappear with it — the page now renders what it has and reports the failure inline, with Try again. A page with nothing of its own still falls back to the error screen, and now shows the real reason rather than a generic line.
+
+### Changed
+- A track change marks Home stale rather than redrawing it, so the page does not jump back to the top under someone who is reading it; it refreshes the next time Home is opened. A change you made yourself — creating a playlist, toggling a favourite — shows immediately. Neither path re-fetches the recommendations.
+- `Shelf` takes an optional header action and an empty-state hint, so an empty section explains itself instead of leaving a gap under a heading.
+
+### Tests
+6 new desktop tests (14 total, all passing) covering both sections rendering, surviving a YouTube Music failure, the error path for an empty library, play-from-clicked-track, playlist opening, and stale-marking. They build real widgets, so they skip where GTK is absent — CI byte-compiles and lints instead.
+
 ## 2026-09-25 — Background playback: the real cause, and the fix
 
 ### Fixed
