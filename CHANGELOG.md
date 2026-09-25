@@ -1,3 +1,20 @@
+## 2026-09-25 — Music stopped mid-song and never recovered
+
+### Fixed
+- **What**: playback died partway through a track and stayed dead, while the button still showed a pause icon as though nothing was wrong
+- **Why**: **the player never took a wake lock.** `WAKE_LOCK` was declared in the manifest from the start and nothing ever used it. Without `setWakeMode(C.WAKE_MODE_NETWORK)` the CPU and the Wi-Fi radio doze while the screen is off, the stream stalls, and ExoPlayer sits there believing it is still playing — so the position freezes and the icon keeps lying.
+- **What**: no audio focus handling — a call or another app could talk over Muzika, and it would not duck, pause or resume
+- **What**: unplugging headphones kept playing out loud
+- **What**: a dropped connection skipped the song entirely
+- **Why**: `onPlayerError` went straight to the next track. A transient network blip should not cost you what you were listening to; it now retries the same track once with a freshly resolved URL and only moves on if that fails too.
+
+### Added
+- **What**: a stall watchdog. A stream can die without ExoPlayer ever reporting an error — the socket goes half-open, the buffer drains, and the player reports "playing" forever. The position is now watched directly, and a track that has not advanced for 12 seconds while it should be playing is re-resolved and resumed **from where it stopped**.
+- **What**: buffering is surfaced in the UI, so a stalled stream can no longer look like healthy playback.
+
+### Verified on the device
+- `dumpsys power` shows `PARTIAL_WAKE_LOCK 'ExoPlayer:WakeLockManager'` held by Muzika's uid during playback, and `dumpsys wifi` shows a Wi-Fi lock held. Neither existed before — the same greps returned nothing.
+
 ## 2026-09-25 — Save the song that is playing, without hunting for it
 
 ### Added

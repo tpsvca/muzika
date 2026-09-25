@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -20,6 +22,9 @@ import lt.a777.muzika.data.Store
 import lt.a777.muzika.data.Track
 import lt.a777.muzika.sources.Sources
 import lt.a777.muzika.widget.NowPlayingWidget
+
+/** How long a track may fail to advance before it is treated as stalled. */
+private const val STALL_TIMEOUT_MS = 12_000L
 
 const val REPEAT_NONE = 0
 const val REPEAT_ALL = 1
@@ -44,6 +49,13 @@ object MuzikaPlayer {
     private var order: MutableList<Int> = mutableListOf()
     private var cursor: Int = -1
     private var resolveToken = 0
+
+    /** Guards the one automatic retry of a failed track. */
+    private var retriedCurrent = false
+    /** Stall detection: the last position we saw, and when it stopped moving. */
+    private var lastPositionSeen = -1L
+    private var stalledSince = 0L
+    private var recovering = false
 
     // Observed by Compose
     var current by mutableStateOf<Track?>(null)
@@ -79,11 +91,34 @@ object MuzikaPlayer {
     fun attach(appContext: Context) {
         if (exo != null) return
         context = appContext.applicationContext
-        exo = ExoPlayer.Builder(context).build().also { player ->
+        exo = ExoPlayer.Builder(context)
+            // Streaming needs the CPU and the Wi-Fi radio kept awake. Without
+            // this the stream simply stops mid-song once the device dozes, and
+            // never comes back - the WAKE_LOCK permission was declared in the
+            // manifest but nothing was ever using it.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
+            // Let Media3 handle audio focus: duck for a notification, pause for
+            // a call, resume afterwards.
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                /* handleAudioFocus = */ true,
+            )
+            // Pause when headphones are unplugged rather than playing out loud.
+            .setHandleAudioBecomingNoisy(true)
+            .build().also { player ->
             player.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_ENDED) next(user = false)
-                    if (state == Player.STATE_READY) durationMs = player.duration.coerceAtLeast(0)
+                    if (state == Player.STATE_READY) {
+                        durationMs = player.duration.coerceAtLeast(0)
+                        retriedCurrent = false
+                    }
+                    // Buffering is shown, so a stalled stream never looks like
+                    // it is happily playing.
+                    loading = state == Player.STATE_BUFFERING
                 }
 
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -92,6 +127,14 @@ object MuzikaPlayer {
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    // A dropped connection should not cost you the song. Try the
+                    // same track once with a freshly resolved URL, and only move
+                    // on if that fails too.
+                    if (!retriedCurrent) {
+                        retriedCurrent = true
+                        reloadCurrent(player.currentPosition)
+                        return
+                    }
                     errorText = "Could not play “${current?.title.orEmpty()}”"
                     next(user = false)
                 }
@@ -103,12 +146,84 @@ object MuzikaPlayer {
     private fun tick() {
         scope.launch {
             while (true) {
-                exo?.let {
-                    positionMs = it.currentPosition.coerceAtLeast(0)
-                    if (it.duration > 0) durationMs = it.duration
+                exo?.let { player ->
+                    val position = player.currentPosition.coerceAtLeast(0)
+                    positionMs = position
+                    if (player.duration > 0) durationMs = player.duration
+                    watchForStall(position)
                 }
                 kotlinx.coroutines.delay(500)
             }
+        }
+    }
+
+    /**
+     * A stream can die without ExoPlayer ever reporting an error: the socket
+     * goes half-open, the buffer drains, and the player sits there believing it
+     * is still playing while the position never moves again. That is what makes
+     * it look like the music simply stopped and will not come back.
+     *
+     * So the position is watched directly, and a track that has not advanced
+     * while it should be playing is reloaded from where it stopped.
+     */
+    private fun watchForStall(position: Long) {
+        if (!isPlaying || recovering) {
+            stalledSince = 0L
+            lastPositionSeen = position
+            return
+        }
+        if (position != lastPositionSeen) {
+            lastPositionSeen = position
+            stalledSince = 0L
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (stalledSince == 0L) {
+            stalledSince = now
+            return
+        }
+        if (now - stalledSince >= STALL_TIMEOUT_MS) {
+            stalledSince = 0L
+            reloadCurrent(position)
+        }
+    }
+
+    /** One place that builds the media item, so recovery cannot drift from it. */
+    private fun mediaItem(track: Track, url: String): MediaItem = MediaItem.Builder()
+        .setUri(url)
+        .setMediaId(track.id)
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle(track.title)
+                .setDisplayTitle(track.title)
+                .setArtist(track.artist)
+                .setAlbumTitle(track.album)
+                .setAlbumArtist(track.artist)
+                .setIsBrowsable(false)
+                .setIsPlayable(true)
+                .setArtworkUri(track.thumb?.let { android.net.Uri.parse(it) })
+                .build()
+        )
+        .build()
+
+    /** Re-resolve the stream and pick up where it stopped. */
+    private fun reloadCurrent(resumeAt: Long) {
+        val track = order.getOrNull(cursor)?.let { queue.getOrNull(it) } ?: return
+        if (recovering) return
+        recovering = true
+        loading = true
+        scope.launch {
+            val url = withContext(Dispatchers.IO) { Sources.resolve(track) }
+            recovering = false
+            if (url == null) {
+                loading = false
+                errorText = "Lost the stream for “${track.title}”"
+                next(user = false)
+                return@launch
+            }
+            exo?.setMediaItem(mediaItem(track, url), resumeAt)
+            exo?.prepare()
+            exo?.play()
         }
     }
 
@@ -245,23 +360,7 @@ object MuzikaPlayer {
                 next(user = false)
                 return@launch
             }
-            val item = MediaItem.Builder()
-                .setUri(url)
-                .setMediaId(track.id)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setDisplayTitle(track.title)
-                        .setArtist(track.artist)
-                        .setAlbumTitle(track.album)
-                        .setAlbumArtist(track.artist)
-                        .setIsBrowsable(false)
-                        .setIsPlayable(true)
-                        .setArtworkUri(track.thumb?.let { android.net.Uri.parse(it) })
-                        .build()
-                )
-                .build()
-            exo?.setMediaItem(item)
+            exo?.setMediaItem(mediaItem(track, url))
             exo?.prepare()
             exo?.play()
             withContext(Dispatchers.IO) { Store.recordPlay(track) }
