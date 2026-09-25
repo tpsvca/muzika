@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RemoteViews inflate in the launcher's context, so the widget cannot rely
+     on this app's theme. Explicit colours with a -night variant instead. -->
+<resources>
+    <color name="widget_background">#F2F6FBF3</color>
+    <color name="widget_title">#FF161D17</color>
+    <color name="widget_subtitle">#FF424940</color>
+    <color name="widget_icon">#FF2E6F40</color>
+    <color name="widget_art_placeholder">#FFDCE5DB</color>
+</resources>

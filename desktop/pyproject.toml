@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muzika"
+version = "1.0.0"
+description = "A GTK4/libadwaita music player for YouTube Music, SoundCloud, Bandcamp and your own files"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Muzika contributors" }]
+keywords = ["music", "player", "gtk4", "libadwaita", "gnome", "youtube-music"]
+classifiers = [
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Sound/Audio :: Players",
+]
+
+# PyGObject and GStreamer are deliberately absent: they are system packages on
+# every distribution that ships GTK4, and pip-installing them from source is a
+# far worse experience than the one-line apt/dnf command in the README.
+dependencies = [
+    "ytmusicapi>=1.12.2",
+    "yt-dlp>=2026.08.19",
+    "requests>=2.22",
+]
+
+[project.urls]
+Homepage = "https://github.com/tpsvca/muzika"
+Source = "https://github.com/tpsvca/muzika"
+Issues = "https://github.com/tpsvca/muzika/issues"
+
+[project.scripts]
+muzika = "muzika.app:main"
+
+[tool.setuptools.packages.find]
+include = ["muzika*"]
+
+[tool.setuptools.package-data]
+muzika = ["data/*.css"]

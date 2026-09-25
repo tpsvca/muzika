@@ -1,0 +1,26 @@
+# --- Python / desktop -------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# --- Android ----------------------------------------------------------------
+android/.gradle/
+android/build/
+android/app/build/
+android/.kotlin/
+android/local.properties
+*.iml
+.idea/
+
+# Signing material must never be committed. CI reads it from repo secrets.
+*.jks
+*.keystore
+keystore.properties
+
+# --- Editors / OS -----------------------------------------------------------
+.DS_Store
+*.swp

@@ -1,0 +1,190 @@
+## 2026-09-25 — Media controls in the shade, home-screen widget, launcher shortcuts
+
+### Fixed
+- **What**: nothing appeared in the notification shade or lock screen while Muzika was playing
+- **Why**: `PlaybackService` built a `MediaSession` but never registered it. Media3 only adds a session automatically when a **`MediaController` connects**, and nothing here uses one — the UI drives the ExoPlayer directly — so the service never went foreground and the system had no media controls to show. The platform said as much in its log: `setFgsIfNoSessionIsLinkedToNotification`. One `addSession(it)` fixes it.
+- **What**: the media chip had no **next** button
+- **Why**: the queue lives in `MuzikaPlayer`, not in ExoPlayer — each track is resolved to a stream URL only as it starts, so ExoPlayer holds exactly one item and reports "no next track". A `QueuePlayer` (`ForwardingPlayer`) now advertises the skip commands and routes them back to the real queue.
+- **What**: a launcher shortcut opened the app but did nothing, unless it was the one shortcut that needed no async work
+- **Why**: the request was held in Compose state that the effect was *keyed on*, and consuming it cleared that key — cancelling the coroutine at its first suspension point. The effect now keys on a counter that only ever increments.
+- **What**: a shortcut fired at an already-running app landed on the wrong screen
+- **Why**: with the default launch mode a second `MainActivity` was created, and the old one — still composed in the back stack — consumed the request first. `launchMode="singleTask"`, which is what a music app wants anyway.
+
+### Added
+- **What**: a **now-playing home-screen widget** (4×1, resizable) with artwork, title, artist and previous / play-pause / next; tapping it opens the app
+- **Why**: requested. It updates from the player itself, and artwork is fetched asynchronously and pushed as a second update, because a widget update must return promptly.
+- **What**: **launcher shortcuts** — long-press the icon for *Liked songs*, *Shuffle everything* and *Search*
+- **What**: richer media metadata (album, album artist, display title) so the system chip has something to show
+
+### Verified on the Pixel
+- Service reaches `isForeground=true` with `types=0x00000002` (mediaPlayback) and posts a `MediaStyle` notification, `category=transport`
+- The shade shows the full media chip: artwork, "This phone", title, artist, seek bar, previous, pause and **next** — `actions=3`, and the platform session bitmask gained `SKIP_TO_NEXT`
+- The widget is registered, appears in the picker under "Muzika · 4 × 1", and its RemoteViews inflate and render (note icon, title, subtitle, three controls)
+- All three shortcuts registered; **Search** and **Liked songs** open their screens and **Shuffle everything** starts playback (`state:started`), cold *and* warm
+- Zero Muzika crashes throughout
+
+### Note
+Placing the widget is a manual drag and this phone's first home page is full, so it is not placed yet — long-press the home screen → Widgets → Muzika. A crash seen while trying to automate that drag was Omega Launcher's own (`com.saggitt.omega`, `width & height must be > 0`), not Muzika's; the widget root was changed from `match_parent` to `wrap_content` height regardless, since a zero-height measure is exactly what provokes it.
+
+## 2026-09-25 — Desktop Settings, Dropbox backend, and local music on both devices
+
+### Added
+- **What**: a real **Settings** dialog on the desktop (`muzika/settings.py`, menu → Settings or `Ctrl+,`), replacing the two ad-hoc sync menu entries
+- **Why**: sync had no visible configuration at all, and there was nowhere to put the new options.
+- **What**: **Dropbox as a sync backend** (`muzika/dropbox.py`), selectable alongside the synced folder
+- **Why**: requested, and it brings the desktop to parity with Android. Dropbox has no anonymous mode, so it takes an access token the user generates in their own app console — no app secret is baked in and no password is ever seen. Settings has a "Test the connection" button that names the account back.
+- **What**: **local music libraries** (`muzika/local.py`) — point Muzika at folders of audio files and it indexes them
+- **Why**: requested. Tags are read with GStreamer's discoverer, which is already a dependency and handles mp3, flac, m4a, ogg, opus and wav alike; embedded cover art is extracted once per album, art beside the files is picked up, and an untagged file falls back to its path. New `local_tracks` table, a **Music** tab in the Library, and local albums and artists folded into the existing Albums and Artists tabs.
+- **What**: **"Copy music into the sync folder"** in Settings, with a live count and size of what is still to copy
+- **Why**: requested — this is how a local music stock reaches the phone. Muzika copies into `<sync folder>/Music`; whichever service is running carries the files. The originals are never moved.
+- **What**: Android indexes that same folder (`data/LocalMusic.kt`, `MediaMetadataRetriever` for tags), plays local files, shows them under a new **On device** shelf, and merges local albums and artists into its own Albums and Artists tabs. Settings gained a music-folder row and a rescan.
+
+### The part that was almost silently broken
+A local track's id has to be **identical on both devices** or every synced playlist entry dangles. The desktop first indexed relative to each music folder (`AC-DC/…`) while the phone indexed relative to the shared root (`musictest/AC-DC/…`) — the same file, two different ids. The canonical path is now `<library folder name>/<path inside it>` on both sides, which is exactly the shared layout, and the tag fallback counts from the *end* of the path so it stays right however deep a library sits.
+
+### Verified end to end
+- Desktop indexed 4 files: tags, track numbers and durations read; embedded art extracted; art beside the files picked up; an untagged file correctly resolved to `Untagged Band / Some Album / Nameless Song` from its path alone
+- "Copy music into the sync folder" copied 4 files and was a no-op on the second run
+- Syncthing carried all 4 to the Pixel; the app indexed them on launch with the same tags, artists, albums and track numbers
+- **Track ids compared directly between the two databases: identical**
+- Playing a local file on the phone loaded it into the player with no extractor involved
+- Deleting the music again propagated, and the phone's rescan dropped the index to 0 while leaving playlists and saved items untouched — the wholesale-replace design picks up deletions
+- Settings opens on the desktop with no warnings; the app syncs and runs clean
+
+### Note
+The test audio used above (1-second tones) was removed from the sync folder afterwards, so no music folder is configured yet — add yours in Settings → Music.
+
+## 2026-09-25 — Saved albums, artists and playlists now sync
+
+### Fixed
+- **What**: albums saved in the desktop player never appeared on Android
+- **Why**: the desktop keeps saved catalogue items (albums, artists, playlists) in its own `library` table, but `muzika-library.json` only ever carried playlists and favourites. Those saves had no way to travel. The sync file now has a `library` key and both clients read and write it.
+- **What**: Android's Albums tab was derived from track metadata, so it could only ever show albums a saved *song* happened to name — which is why it read "No albums yet" against three saved albums on the desktop.
+- **What**: track subtitles showed a stray "&" ("6uff • & • TENI")
+- **Why**: YouTube Music emits its separators as their own runs, and only " • " was being filtered out.
+
+### Added
+- **What**: a `saved` table on Android (schema v3, migrated in place) mirroring the desktop's `library`
+- **What**: a bookmark button on every album, artist and online playlist page, so saving works from the phone too
+- **What**: Library's Albums, Artists and Playlists tabs merge saved catalogue items with the ones derived from your own songs; a saved one wins, so tapping it opens the real page
+- **What**: `docs/sync-format.md` documents the `library` key and its merge rule
+
+### Merge rule
+Saved items are **unioned on `(kind, id)`**, like favourites — unsaving an album on one device does not unsave it on the other. Deletions still do not propagate; silent loss across devices is the worse failure.
+
+### Verified end to end
+- Desktop exported 7 saved items (3 albums, 2 artists, 2 playlists); Syncthing carried the 35,259-byte file to the Pixel
+- Android's Library then showed **Albums · 3** — Painkiller / Judas Priest, Bix-Ray / Bix, Priesaika / Thundertale, matching the desktop exactly — and **Playlists · 4**, the two local ones plus both saved Katedra playlists
+- Opening Painkiller loaded the real album ("Album • 1990 • Judas Priest") with its tracks, bookmark already filled
+- **Reverse direction**: saved *IRON ORE* on the phone; the desktop import reported `library_added: 1` and now lists four saved albums
+- Albums tab ends at 4 with no crashes
+
+## 2026-09-25 — Android app: crash fix, recommendations, Explore, Library types, settings
+
+### Fixed
+- **What**: "Muzika keeps stopping" — `MuzikaPlayer.loadCurrent()` called `startForegroundService()` on *every* track load
+- **Why**: on Android 12+ that throws when the app is backgrounded, which is exactly what happens when a track auto-advances with the screen off. The service is now started once, from the foreground, in `MainActivity.onCreate()`.
+- **What**: lazy-list keys were bare track/item ids
+- **Why**: a YouTube Music playlist may legitimately list the same song twice, and a repeated key crashes a Compose lazy list. Keys now pair the id with the position.
+- **What**: opening an artist or album in the library ran a full SQLite scan on the main thread from the click handler; it now filters the list already in memory.
+
+### Added
+- **What**: `sources/Innertube.kt` — YouTube Music's own browse/search/next API, called anonymously
+- **Why**: it answers without an account (only the *player* endpoint requires one, which is why streams still go through NewPipeExtractor). This is what makes albums, artists, playlists, moods and radios possible at all.
+- **What**: `sources/Discover.kt` — home-page suggestions built on this device
+- **Why**: requested "newest playlists adapting to my style". Top artists are derived from local play history and favourites, and each seeds a YouTube Music radio. No account, no profile on a server: the taste model is the phone's own history table.
+- **What**: **Explore** tab — YouTube Music moods and genres (36 categories), each opening its shelves of playlists
+- **What**: **Search** now returns songs, albums, artists and playlists, with filter chips, alongside SoundCloud and Bandcamp results
+- **What**: **Library** now has Playlists, Songs, Artists, Albums and Liked, with counts on each chip
+- **What**: **Settings** — light/dark/system theme, wallpaper colours, sync backend, sync folder, Dropbox, source toggles, clear history, refresh suggestions
+- **What**: **Dropbox sync** (`data/Dropbox.kt`) as an alternative to the synced folder
+- **Why**: requested. Dropbox has no anonymous mode, so it takes an access token the user generates in their own app console — no app secret is baked into the APK and no password is ever seen.
+- **What**: artist and album pages, a mix page, and a real back stack so Home → mix → artist → album → back works
+- **What**: `album` column on tracks (schema v2, migrated in place) and carried in `muzika-library.json`
+
+### Changed
+- **What**: grid-and-carousel layout with 544px artwork, 56dp rows, 48dp controls, larger mini-player
+- **Why**: requested bigger icons and grid layout; the old UI was uniform 44dp list rows with no visual hierarchy.
+- **What**: playlist reordering is now a mode behind one button instead of two buttons on every row, and gained "move down"
+- **What**: every empty state now offers the action that fixes it
+
+### Fixed (second pass, found by driving the app on the device)
+- **What**: a detail page's button stayed on "Play" while that very page was playing
+- **Why**: `MuzikaPlayer.source` was a plain field. The header compares against it to decide Play vs Pause, but a plain field never invalidates a Compose scope, so the header kept a stale answer. It is Compose state now.
+- **What**: the library invented an artist called "G"
+- **Why**: artist names were split on a bare `&` and `,`, so "G&G Sindikatas" became "G". Splitting now only happens on separators actually surrounded by spaces, which leaves AC/DC, G&G Sindikatas and "Tyler, The Creator" whole.
+- **What**: "1 songs"
+- **What**: every catalogue card repeated its own type in its subtitle ("Playlist • YouTube Music")
+
+### Verified on the Pixel
+- Build succeeds; APK installed (22.1 MB); no crashes across every screen
+- **Live parser tests** (`app/src/test/.../InnertubeTest.kt`, 7 tests, all passing against the real API): songs search returns 20 tracks with durations, artists and album names; albums/artists/playlists are typed correctly; *Master of Puppets* returns its 8 tracks with cover and durations; a 100-track playlist loads; the Metallica artist page returns 5 top songs and 7 shelves including "Fans might also like"; a radio returns 50 tracks; 36 moods load and "Chill" alone yields 10 shelves
+- **Schema v2 migrated in place** with no data loss: `user_version=2`, album column on all three tables, acdc 112 / MyTop 4 / 7 favourites intact, and `muzika-library.json` rewritten stamped `"device": "Pixel 7 Pro"`
+- **Home adapts**: "Tuned to AC/DC and Thundertale", with Metallica radio / Relaxing Blues Music radio / AC/DC radio under "Made for you", AC/DC albums, AC/DC playlists, and Creedence Clearwater Revival / Mötley Crüe / Ozzy Osbourne under "Artists you might like"
+- **Playback**: opening Metallica radio and pressing Play produced `AudioPlaybackConfiguration ... state:started usage=USAGE_MEDIA ... sampleRate=48000` from Muzika's uid, with the mini player, the equaliser glyph and the header's Pause state all correct
+- **Explore** lists 36 moods; "Chill" opens Coffee shop blends, Unwind + explore and the rest with real artwork
+- **Search** for a term returns Artists, Albums (with years) and Playlists side by side
+- **Library** shows Playlists · 2, Songs · 124, Artists · 9, Albums
+- **Dark theme** applies instantly across every surface including the mini player
+- A 50-track radio scrolls to its last track with nothing hidden behind the mini player
+
+### Removed
+- **What**: OuterTune (`com.dd3boh.outertune.debug`), InnerTune (`com.zionhuang.music.debug`) and SimpMusic (`com.maxrave.simpmusic`), uninstalled from the Pixel
+- **Why**: all three were dead-end fork attempts, superseded by our own app. They were present in the PlayStore (10) and povelniu (11) profiles, not Owner; removed from both, verified clean across users 0/10/11, with `lt.a777.muzika` left in place and relaunching with no crashes.
+
+## 2026-09-25 — Muzika for Android, built from scratch
+
+### Added
+- **What**: our own Android app (`~/muzapp` on Debian, `lt.a777.muzika`), not a fork — Kotlin, Compose Material3, Media3 ExoPlayer with a MediaSessionService, plain SQLite, OkHttp, Coil
+- **Why**: every existing client failed structurally. NewPipeExtractor resolves YouTube **anonymously** (verified: 5 audio streams, WEBMA_OPUS 160k, HTTP 206), which is what no innertube-based fork could still do.
+- **Features**: multi-source search (YouTube, SoundCloud, Bandcamp), queue with shuffle and repeat, playlists with reorder/rename/delete, favourites, history, lyrics from LRCLIB/NetEase/KuGou with synced highlighting, and library sync over the same `muzika-library.json`.
+
+### Verified on the device
+- Installs and runs with zero crashes
+- **Sync round-trip**: Fedora exported 33330 bytes → Syncthing → the app imported and wrote back 33817 bytes stamped `"device": "Pixel 7 Pro"` → Syncthing carried it back to Fedora. Both ends now hold MyTop (4) and acdc (112) with 7 favourites; folder reports `need=0 errors=0`.
+- `muzika.db` created and populated in the app's data directory
+- On-device playback was confirmed later the same day — see the entries above.
+
+## 2026-09-25 — SoundCloud and Bandcamp as first-class sources
+
+### Added
+- **What**: `muzika/sources.py` — a source layer beyond YouTube Music, starting with **SoundCloud** and **Bandcamp**
+- **Why**: requested. Neither needs an account or API key: SoundCloud search goes through yt-dlp's own `scsearch`, Bandcamp through the autocomplete endpoint its website uses, and yt-dlp extracts streams for both.
+- **What**: search results now show SoundCloud and Bandcamp sections alongside YouTube's
+- **What**: `Api.stream()` takes a whole track instead of a bare video id
+- **Why**: non-YouTube tracks carry a page URL that an id cannot express. The player passes the track through.
+- **What**: `source` and `url` columns on `favourites` and `playlist_tracks`, added by migration for existing databases, and carried in `muzika-library.json`
+- **Why**: without them a Bandcamp track degraded to an unplayable YouTube id as soon as it was saved or synced.
+
+### Verified
+- All three sources play through the real player: soundcloud PLAYS, bandcamp PLAYS, youtube PLAYS
+- Search renders `['Songs', 'SoundCloud', 'Bandcamp']`
+- A Bandcamp track survives save → export → import with its source and URL intact
+- The existing library migrated with no loss (acdc 112 songs, MyTop 4)
+- A source that fails is skipped; it costs results, never the whole search
+
+## 2026-09-25 — Lyrics: four sources, synced always preferred
+
+### Fixed
+- **What**: lyrics showed but did not follow the song
+- **Why**: YouTube Music sometimes returns *plain* (untimed) lyrics, and we accepted them and stopped looking. Untimed text can never follow playback. The chain now treats **synced lyrics from any source as better than plain text from a nearer one**, and only falls back to plain when no provider has timings.
+
+---
+
+## Earlier entries were lost
+
+On 2026-09-25 two changelog updates were written with `open(path, "w").write(new + open(path).read())`.
+Python opens the file for writing — truncating it — *before* the read runs, so each of those
+updates destroyed everything already in the file. The project is not under version control, so
+there was no copy to restore from. Everything above was reassembled from drafts and from the
+session transcript; the entries below existed and are gone. Their headings are recorded here
+because that is all that survived:
+
+- `## 2026-09-24 — Fixed: import crashed on FOREIGN KEY constraint`
+- `## 2026-09-24 — Syncthing sync to the Pixel; debug overlay removed`
+- `## 2026-09-24 — Android app (OuterTune fork) with Muzika sync`
+- `## 2026-09-24 — Library sync through a synced folder`
+- `## 2026-09-24 — Library tabs drop to icons instead of truncating`
+- and further 2026-09-24 entries covering the desktop player's own construction, whose
+  headings were never captured. the system-level changelog in the home directory has a 2026-09-24 entry describing
+  that work from the system side and is the nearest surviving account.

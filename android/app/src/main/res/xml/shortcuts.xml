@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the launcher icon to jump straight in. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="liked"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_liked"
+        android:shortcutShortLabel="@string/shortcut_liked"
+        android:shortcutLongLabel="@string/shortcut_liked">
+        <intent
+            android:action="lt.a777.muzika.OPEN"
+            android:targetPackage="lt.a777.muzika"
+            android:targetClass="lt.a777.muzika.ui.MainActivity">
+            <extra android:name="destination" android:value="liked" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="shuffle"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_shuffle"
+        android:shortcutShortLabel="@string/shortcut_shuffle"
+        android:shortcutLongLabel="@string/shortcut_shuffle">
+        <intent
+            android:action="lt.a777.muzika.OPEN"
+            android:targetPackage="lt.a777.muzika"
+            android:targetClass="lt.a777.muzika.ui.MainActivity">
+            <extra android:name="destination" android:value="shuffle" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="search"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_search"
+        android:shortcutShortLabel="@string/shortcut_search"
+        android:shortcutLongLabel="@string/shortcut_search">
+        <intent
+            android:action="lt.a777.muzika.OPEN"
+            android:targetPackage="lt.a777.muzika"
+            android:targetClass="lt.a777.muzika.ui.MainActivity">
+            <extra android:name="destination" android:value="search" />
+        </intent>
+    </shortcut>
+</shortcuts>

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Muzika
+GenericName=Music Player
+Comment=Listen to YouTube Music, SoundCloud, Bandcamp and your own files
+Exec=muzika
+Icon=lt.a777.Muzika
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=music;audio;player;youtube;stream;
+StartupNotify=true
+StartupWMClass=lt.a777.Muzika

@@ -1,0 +1,107 @@
+/* Muzika - GNOME/Adwaita styling.
+   Colours come from libadwaita CSS variables so light, dark and the user's
+   accent colour are all followed automatically. */
+
+.thumb {
+  border-radius: 8px;
+  border: none;
+  background-color: alpha(currentColor, 0.08);
+}
+
+.thumb picture {
+  border-radius: 8px;
+}
+
+.thumb-round,
+.thumb-round picture {
+  border-radius: 9999px;
+}
+
+.hero-art {
+  border-radius: 12px;
+  box-shadow: 0 3px 16px rgba(0, 0, 0, 0.28);
+}
+
+.hero-art picture {
+  border-radius: 12px;
+}
+
+/* Shelf tiles ------------------------------------------------------------- */
+
+.tile {
+  padding: 8px;
+  border-radius: 12px;
+  transition: background-color 150ms ease;
+}
+
+.tile:hover {
+  background-color: alpha(currentColor, 0.07);
+}
+
+.shelf {
+  margin-bottom: 4px;
+}
+
+.shelf scrolledwindow {
+  padding-bottom: 4px;
+}
+
+/* Player bar -------------------------------------------------------------- */
+
+.player-bar {
+  background-color: var(--headerbar-bg-color);
+}
+
+.player-bar button.circular {
+  min-width: 36px;
+  min-height: 36px;
+}
+
+.seek-compact scale {
+  margin: 0;
+}
+
+.seek-compact scale trough {
+  min-height: 4px;
+}
+
+/* Lists ------------------------------------------------------------------- */
+
+row.now-playing {
+  background-color: alpha(var(--accent-bg-color), 0.12);
+}
+
+.lyric-line {
+  font-size: 1.05rem;
+  padding: 2px 0;
+  line-height: 1.5;
+  transition: opacity 200ms ease, color 200ms ease;
+}
+
+.lyric-pending {
+  opacity: 0.45;
+}
+
+.lyric-active {
+  opacity: 1;
+  font-weight: bold;
+  color: var(--accent-color);
+}
+
+/* Sidebar ----------------------------------------------------------------- */
+
+.navigation-sidebar row {
+  border-radius: 8px;
+  margin: 2px 6px;
+}
+
+/* Mini player: the seek bar is replaced by a hairline progress indicator. */
+.mini-progress,
+.mini-progress trough,
+.mini-progress progress {
+  min-height: 3px;
+}
+
+.mini-progress trough {
+  background-color: alpha(currentColor, 0.15);
+}

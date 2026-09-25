@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Muzika</string>
+    <string name="widget_description">Control what is playing, straight from the home screen</string>
+    <string name="shortcut_liked">Liked songs</string>
+    <string name="shortcut_shuffle">Shuffle everything</string>
+    <string name="shortcut_search">Search</string>
+</resources>
