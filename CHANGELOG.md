@@ -1,3 +1,31 @@
+## 2026-09-25 — Packaged both apps for GitHub
+
+### Changed
+- **What**: restructured into a monorepo — `desktop/` (Python/GTK4) and `android/` (Kotlin/Compose), with `docs/`, `CHANGELOG.md` and one `README.md` shared
+- **Why**: the two apps share the sync format, so one issue tracker and one release page keeps them honest with each other.
+- **What**: the desktop app is relocatable — `style.css` moved inside the package, `bin/muzika` derives its own path, and the `.desktop` entry uses `Exec=muzika` instead of a hard-coded home directory
+- **Why**: it could only ever have run from `/home/<user>/projects/muzika`.
+
+### Added
+- **What**: `LICENSE` — GPL-3.0-or-later
+- **Why**: the Android app links NewPipeExtractor, which is GPL-3.0. Not a preference, a requirement.
+- **What**: `desktop/pyproject.toml` and `desktop/install.sh` — `pip install` gives a `muzika` command; the script adds the menu entry and icon under `~/.local`
+- **What**: release signing driven entirely by environment variables, with an unsigned fallback so a fork builds out of the box
+- **What**: three GitHub Actions workflows — debug APK on every push, byte-compile + lint for the desktop, and a signed release APK attached to the Release on any `v*` tag
+- **What**: `README.md` covering both apps, install instructions per distribution, screenshots, a plain statement of what the project is not affiliated with, and the licence reasoning
+- **What**: `.gitignore` excluding build output, `local.properties` and any keystore
+
+### Verified
+- `pip install` of `desktop/` into a clean venv produces a working `muzika` command; the packaged CSS resolves from site-packages and the app launches
+- Android **debug** build succeeds from the new layout
+- Android **release** build with no secrets set produces `app-release-unsigned.apk` — the fork path works
+- Android **release** build with the signing variables set produces `app-release.apk`, and `apksigner verify` reports *Verifies*, v2 scheme, `CN=Muzika`, SHA-256 matching the keystore
+- 107 files staged; audited for tokens, keys and personal paths — nothing sensitive tracked
+- The installed launcher was repaired after the move and the app runs from the installed package
+
+### Note
+The signing keystore lives in `~/.muzika-signing/` (mode 600, outside the repo) with the GitHub secret values beside it. Losing it means never being able to ship an upgrade to anyone who installed a release, because Android refuses an APK signed by a different key.
+
 ## 2026-09-25 — Media controls in the shade, home-screen widget, launcher shortcuts
 
 ### Fixed
