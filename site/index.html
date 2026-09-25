@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Muzika — a music player for Linux and Android that needs no account</title>
+<meta name="description" content="Free, open-source music player for Linux desktop and Android. Play YouTube Music, SoundCloud, Bandcamp and your own files with no sign-in, and sync your library between devices with Syncthing, Dropbox or Nextcloud.">
+<link rel="canonical" href="https://tpsvca.github.io/muzika/">
+
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://tpsvca.github.io/muzika/">
+<meta property="og:title" content="Muzika — a music player that needs no account">
+<meta property="og:description" content="YouTube Music, SoundCloud, Bandcamp and your own files, on Linux and Android, with your library synced between every device you own.">
+<meta property="og:image" content="https://tpsvca.github.io/muzika/desktop.png">
+<meta name="twitter:card" content="summary_large_image">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Muzika",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Linux, Android 8.0+",
+  "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "url": "https://tpsvca.github.io/muzika/",
+  "downloadUrl": "https://github.com/tpsvca/muzika/releases/latest",
+  "description": "Music player for Linux and Android with no account required. Plays YouTube Music, SoundCloud, Bandcamp and local files, and syncs your library between devices."
+}
+</script>
+
+<style>
+  :root {
+    --bg:#f6fbf3; --fg:#161d17; --muted:#424940; --brand:#2e6f40;
+    --card:#ffffff; --line:#dce5db;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0f140f; --fg:#e1e4dd; --muted:#bfc9bd; --brand:#7fd79a;
+      --card:#161d17; --line:#2a322a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0f140f; --fg:#e1e4dd; --muted:#bfc9bd; --brand:#7fd79a;
+    --card:#161d17; --line:#2a322a;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--fg);
+    font:16px/1.65 system-ui,-apple-system,"Segoe UI",Cantarell,sans-serif;
+  }
+  .wrap { max-width:1060px; margin:0 auto; padding:0 16px; }
+  header { text-align:center; padding:72px 16px 40px; }
+  h1 { font-size:clamp(2.6rem,7vw,4rem); margin:0 0 .2em; letter-spacing:-.02em; }
+  .tag { font-size:clamp(1.05rem,2.6vw,1.3rem); color:var(--muted); max-width:34ch; margin:0 auto 1.6em; }
+  .cta { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  .btn {
+    display:inline-block; padding:13px 26px; border-radius:999px;
+    text-decoration:none; font-weight:600; border:1px solid var(--brand);
+  }
+  .btn.primary { background:var(--brand); color:var(--bg); }
+  .btn.ghost { color:var(--brand); }
+  .shots { display:flex; gap:16px; align-items:flex-end; justify-content:center;
+           flex-wrap:wrap; margin:56px 0; }
+  .shots img { border-radius:14px; border:1px solid var(--line); max-width:100%; }
+  h2 { font-size:1.6rem; margin:2.4em 0 .6em; }
+  .grid { display:grid; gap:18px; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; }
+  .card h3 { margin:0 0 .4em; font-size:1.05rem; color:var(--brand); }
+  .card p { margin:0; color:var(--muted); font-size:.95rem; }
+  pre {
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:16px; overflow-x:auto; font-size:.88rem;
+  }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  footer { text-align:center; color:var(--muted); font-size:.9rem;
+           padding:56px 16px 72px; border-top:1px solid var(--line); margin-top:64px; }
+  a { color:var(--brand); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>Muzika</h1>
+    <p class="tag">A music player for Linux and Android that needs no account.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/tpsvca/muzika/releases/latest">Download for Android</a>
+      <a class="btn ghost" href="https://github.com/tpsvca/muzika#linux">Install on Linux</a>
+      <a class="btn ghost" href="https://github.com/tpsvca/muzika">Source on GitHub</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="shots">
+    <img src="desktop.png" alt="Muzika on the Linux desktop" width="600">
+    <img src="android.png" alt="Muzika on Android" width="210">
+  </div>
+
+  <h2>What it does</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>No account, ever</h3>
+      <p>No sign-in, no API key, no Muzika server. Browsing, search and radios
+         work anonymously.</p>
+    </div>
+    <div class="card">
+      <h3>Four sources</h3>
+      <p>YouTube Music, SoundCloud, Bandcamp — and your own audio files, read
+         with their real tags and cover art.</p>
+    </div>
+    <div class="card">
+      <h3>Synced between devices</h3>
+      <p>One small JSON file in a folder you already sync: Syncthing, Dropbox,
+         Nextcloud, OpenCloud. Your music files can travel the same way.</p>
+    </div>
+    <div class="card">
+      <h3>Suggestions computed locally</h3>
+      <p>Your most-played artists seed radios on your own device. Nothing about
+         what you listen to is uploaded.</p>
+    </div>
+    <div class="card">
+      <h3>Synced lyrics</h3>
+      <p>Time-aligned and following the song, from LRCLIB, NetEase and KuGou.</p>
+    </div>
+    <div class="card">
+      <h3>Properly integrated</h3>
+      <p>MPRIS on the desktop; media notification, lock-screen controls, a
+         home-screen widget and launcher shortcuts on Android.</p>
+    </div>
+  </div>
+
+  <h2>Install</h2>
+  <p><b>Android</b> — add the repository to
+     <a href="https://github.com/ImranR98/Obtainium">Obtainium</a> and get every
+     update automatically:</p>
+  <pre><code>https://github.com/tpsvca/muzika</code></pre>
+  <p>Or download the APK from the
+     <a href="https://github.com/tpsvca/muzika/releases/latest">latest release</a>.
+     Android 8.0 or newer.</p>
+
+  <p><b>Linux</b> — GTK4, libadwaita and GStreamer come from your distribution:</p>
+  <pre><code>git clone https://github.com/tpsvca/muzika.git
+cd muzika/desktop
+./install.sh</code></pre>
+
+  <div class="shots">
+    <img src="explore.png" alt="Explore moods and genres" width="220">
+    <img src="media.png" alt="Media controls in the notification shade" width="220">
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <p>Free software under the
+       <a href="https://github.com/tpsvca/muzika/blob/main/LICENSE">GPL-3.0-or-later</a>.</p>
+    <p>Not affiliated with Google, YouTube, SoundCloud or Bandcamp.</p>
+  </div>
+</footer>
+
+</body>
+</html>

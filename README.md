@@ -1,112 +1,162 @@
-# Muzika
+<h1 align="center">Muzika</h1>
 
-A music player for **Linux desktop** and **Android** that needs no account,
-and keeps your library in sync between them.
+<p align="center">
+  <b>A music player for Linux and Android that needs no account.</b><br>
+  YouTube Music, SoundCloud, Bandcamp and your own files — with your library
+  synced between every device you own.
+</p>
 
-It plays from YouTube Music, SoundCloud, Bandcamp and your own audio files.
-There is no sign-in, no API key, and nothing about what you listen to is sent
-anywhere — the suggestions on the home page are worked out on your own device
-from your own play history.
+<p align="center">
+  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/tpsvca/muzika?style=flat-square&color=2E6F40"></a>
+  <a href="LICENSE"><img alt="Licence" src="https://img.shields.io/badge/licence-GPL--3.0--or--later-2E6F40?style=flat-square"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-Linux%20%7C%20Android-2E6F40?style=flat-square">
+  <img alt="Accounts required" src="https://img.shields.io/badge/accounts-none-2E6F40?style=flat-square">
+</p>
 
-| Desktop (GTK4 / libadwaita) | Android (Compose / Material 3) |
-|---|---|
-| ![desktop](docs/desktop/home.png) | ![android](docs/android/home.png) |
+<p align="center">
+  <img src="docs/desktop/home.png" width="58%" />
+  <img src="docs/android/home.png" width="24%" />
+</p>
 
-## What it does
+---
 
-- **Four sources.** YouTube Music, SoundCloud, Bandcamp, and local audio files
-  (mp3, flac, m4a, ogg, opus, wav…) with their tags and cover art.
-- **Search** across songs, albums, artists and playlists.
-- **Explore** YouTube Music's moods and genres — 36 categories of curated
+## What Muzika is
+
+Two players — one for the **Linux desktop**, one for **Android** — that share a
+single library file. Search once, save once, and the playlist you built on your
+laptop is on your phone the next time you open it.
+
+There is **no sign-in, no API key and no Muzika server**. YouTube Music's
+catalogue endpoints answer anonymously, so browsing, searching and radios work
+without an account; audio is resolved by the same extractors NewPipe and yt-dlp
+use. The home page's suggestions are computed **on your own device** from your
+own play history — nothing about what you listen to is uploaded anywhere.
+
+### Sources
+
+| Source | Search | Albums / artists | Streams |
+|---|---|---|---|
+| **YouTube Music** | yes | yes | yes |
+| **SoundCloud** | yes | — | yes |
+| **Bandcamp** | yes | — | yes |
+| **Your own files** | yes | from tags | local |
+
+Local files work for mp3, flac, m4a, aac, ogg, opus, wav, wma and more, read
+with their real tags, track numbers and cover art — and an untagged file falls
+back sensibly to its folder structure.
+
+### Features
+
+- **Search** songs, albums, artists and playlists, with filters.
+- **Explore** — 36 of YouTube Music's moods and genres, each a shelf of curated
   playlists.
-- **Made for you.** Your most-played artists seed radios; the home page is
-  built from them. No account, no profile on anyone's server.
-- **Your library.** Playlists you build, liked songs, saved albums and artists,
-  listening history.
+- **Made for you** — your most-played artists seed radios, and the home page is
+  built from them.
+- **Your library** — playlists you build, liked songs, saved albums and artists,
+  listening history, and everything on disk.
 - **Lyrics**, time-synced and following the song, from LRCLIB, NetEase and
   KuGou when YouTube Music has none.
-- **Sync between devices** through one small JSON file in a folder you already
-  sync — Syncthing, Dropbox, Nextcloud, OpenCloud. Your music files can travel
-  the same way.
-- **System integration**: MPRIS on the desktop; media notification, lock-screen
+- **Queue** with shuffle and repeat, reorderable playlists.
+- **Light / dark / system** theming, wallpaper colours on Android.
+- **System integration** — MPRIS on the desktop; media notification, lock-screen
   controls, a home-screen widget and launcher shortcuts on Android.
 
 <p align="center">
-  <img src="docs/android/explore.png" width="30%" />
-  <img src="docs/android/search.png" width="30%" />
-  <img src="docs/android/media-controls.png" width="30%" />
+  <img src="docs/android/explore.png" width="23%" />
+  <img src="docs/android/search.png" width="23%" />
+  <img src="docs/android/albums.png" width="23%" />
+  <img src="docs/android/media-controls.png" width="23%" />
 </p>
 
-## Why this exists
-
-The desktop player began because AudioTube is a Kirigami (KDE) app: on GNOME it
-works but never looks at home, and its structural widgets are KDE idioms that
-cannot be restyled into Adwaita ones. The Android app began because every
-existing client had stopped being able to play anything without a Google
-account.
+---
 
 ## Install
 
 ### Android
 
-Download the APK from the [latest release](../../releases/latest) and open it.
-Android 8.0 (API 26) or newer.
+**Obtainium (recommended — you get updates)**
 
-On first launch it asks for all-files access. That is used for one thing: the
-sync folder holding `muzika-library.json` and, if you want it, your music.
+1. Install [Obtainium](https://github.com/ImranR98/Obtainium).
+2. *Add App* → paste `https://github.com/tpsvca/muzika` → *Add*.
 
-### Linux desktop
+It tracks every new release and updates in place.
 
-GTK4, libadwaita and GStreamer come from your distribution; everything else is
-a normal Python install.
+**Or install the APK directly**
+
+Download `muzika-x.y.z.apk` from the [latest release](../../releases/latest)
+and open it. Android 8.0 (API 26) or newer.
+
+> On first launch Muzika asks for all-files access. It is used for one thing:
+> the sync folder holding `muzika-library.json` and, if you want it, your music.
+> Nothing else is read.
+
+### Linux
+
+GTK4, libadwaita and GStreamer come from your distribution; the rest is a
+normal Python install.
+
+<details open>
+<summary><b>Fedora</b></summary>
 
 ```bash
-# Fedora
 sudo dnf install python3-gobject gtk4 libadwaita \
     gstreamer1-plugins-good gstreamer1-plugins-bad-free
+```
+</details>
 
-# Debian / Ubuntu
+<details>
+<summary><b>Debian / Ubuntu</b></summary>
+
+```bash
 sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 \
     gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+```
+</details>
 
-# Arch
+<details>
+<summary><b>Arch</b></summary>
+
+```bash
 sudo pacman -S python-gobject gtk4 libadwaita gst-plugins-good gst-plugins-bad
 ```
+</details>
 
 Then:
 
 ```bash
 git clone https://github.com/tpsvca/muzika.git
 cd muzika/desktop
-./install.sh          # installs into ~/.local, adds the menu entry and icon
+./install.sh          # into ~/.local: the muzika command, menu entry and icon
 ```
 
-Or run it straight from the checkout without installing anything:
+Run it from the applications menu, or `muzika`. To run from the checkout
+without installing anything: `./bin/muzika`.
 
-```bash
-cd muzika/desktop && ./bin/muzika
-```
-
-`yt-dlp` and `ytmusicapi` are what keep extraction working as the services
-change. Keep them current:
+Extraction only keeps working because `yt-dlp` and `ytmusicapi` keep up with
+the services. Update them now and then:
 
 ```bash
 pip install --user --upgrade yt-dlp ytmusicapi
 ```
 
-## Syncing your library
+---
+
+## Syncing between devices
 
 Both apps read and write **one file**, `muzika-library.json`, in a folder of
-your choosing. Point them at a folder your sync service already carries and the
-two ends meet — there is no Muzika server and no account.
+your choosing. Point every device at a folder your sync service already
+carries and they meet — there is no account and no server in the middle.
 
-Set the folder in **Settings → Sync** on both devices (the Android default is
-`/storage/emulated/0/Muzika`). Dropbox can also be used directly over its API
-with a token you generate yourself.
+Works with **Syncthing**, **Dropbox**, **Nextcloud**, **OpenCloud**, or
+anything else that syncs a folder. Set it in **Settings → Sync** on each
+device; Android defaults to `/storage/emulated/0/Muzika`. Dropbox can also be
+driven directly over its API with a token you generate yourself.
 
-To carry the audio too, add a music folder in **Settings → Music** on the
-desktop and press *Copy music into the sync folder*. The format is documented
-in [`docs/sync-format.md`](docs/sync-format.md).
+To carry the audio as well, add a music folder in **Settings → Music** on the
+desktop and press *Copy music into the sync folder*. Your originals are never
+moved. The format is documented in [`docs/sync-format.md`](docs/sync-format.md).
+
+---
 
 ## Building
 
@@ -115,17 +165,11 @@ in [`docs/sync-format.md`](docs/sync-format.md).
 ```bash
 cd android
 ./gradlew assembleDebug        # app/build/outputs/apk/debug/
+./gradlew testDebugUnitTest    # live tests against the real API
 ```
 
-Needs JDK 17 and an Android SDK; point `local.properties` at it with
-`sdk.dir=/path/to/Android/Sdk`, or set `ANDROID_HOME`.
-
-`app/src/test` contains live tests that hit YouTube Music for real and are the
-fastest way to find out whether a parser has gone stale:
-
-```bash
-./gradlew testDebugUnitTest
-```
+JDK 17 and an Android SDK. Point at the SDK with `local.properties`
+(`sdk.dir=/path/to/Android/Sdk`) or `ANDROID_HOME`.
 
 ### Desktop
 
@@ -133,34 +177,63 @@ fastest way to find out whether a parser has gone stale:
 cd desktop && pip install --user -e .
 ```
 
-## How it works, briefly
+---
+
+## How it works
 
 YouTube Music's `browse`, `search` and `next` endpoints answer **anonymously**;
-only its `player` endpoint demands a login. So the catalogue — search, albums,
-artists, moods, radios — comes from InnerTube directly, while the audio stream
-is resolved by [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor)
-on Android and [yt-dlp](https://github.com/yt-dlp/yt-dlp) on the desktop. That
-split is the whole reason this works without an account.
+only its `player` endpoint demands a login. That single fact is why this works
+without an account: the catalogue — search, albums, artists, moods, radios —
+comes straight from InnerTube, while the audio stream is resolved by
+[NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor) on Android
+and [yt-dlp](https://github.com/yt-dlp/yt-dlp) on the desktop.
+
+| | Desktop | Android |
+|---|---|---|
+| UI | GTK4 + libadwaita | Jetpack Compose, Material 3 |
+| Language | Python | Kotlin |
+| Playback | GStreamer `playbin3` | Media3 ExoPlayer |
+| Extraction | yt-dlp, ytmusicapi | NewPipeExtractor, InnerTube |
+| Storage | SQLite | SQLite |
+
+---
+
+## Credits
+
+Muzika stands on work other people did first:
+
+- **[AudioTube](https://invent.kde.org/multimedia/audiotube)** (KDE) — the
+  desktop player began as a GNOME-native answer to AudioTube, and its approach
+  of pairing `ytmusicapi` with `yt-dlp` is the one Muzika still uses. If you are
+  on KDE, use AudioTube; it is a fine player and better integrated there than
+  this will ever be.
+- **[NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor)** (Team NewPipe)
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** and
+  **[ytmusicapi](https://github.com/sigma67/ytmusicapi)**
+- **[LRCLIB](https://lrclib.net/)** for synced lyrics
+
+---
 
 ## Contributing
 
-Issues and pull requests are welcome. Keep changes focused, and say in the PR
+Issues and pull requests are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md). Keep changes focused, and say in the PR
 what you actually verified rather than what you expect to work.
+
+---
 
 ## Legal
 
-Muzika is an independent project. It is not affiliated with, endorsed by or
-connected to Google, YouTube, SoundCloud or Bandcamp in any way.
+Muzika is an independent project, not affiliated with, endorsed by or connected
+to Google, YouTube, SoundCloud or Bandcamp in any way.
 
 It extracts publicly reachable streams the same way NewPipe and yt-dlp do.
 Doing so may conflict with those services' Terms of Service in your
 jurisdiction, and you are responsible for how you use it. Nothing here
-circumvents paid subscriptions, DRM or access controls, and no content is
+circumvents DRM, paid subscriptions or access controls, and no content is
 hosted or redistributed.
 
 ## Licence
 
-[GPL-3.0-or-later](LICENSE).
-
-The Android app links [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor),
-which is GPL-3.0, so the GPL is not a preference here — it is a requirement.
+[GPL-3.0-or-later](LICENSE). The Android app links NewPipeExtractor, which is
+GPL-3.0 — so the GPL here is a requirement, not a preference.
