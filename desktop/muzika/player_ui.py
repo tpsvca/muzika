@@ -208,6 +208,14 @@ class PlayerBar(Gtk.Box):
         self._favourite.connect("clicked", self._toggle_favourite)
         actions.append(self._favourite)
 
+        # Saving what is playing should not mean hunting for the same track
+        # again in a list somewhere.
+        self._add = Gtk.Button.new_from_icon_name("list-add-symbolic")
+        self._add.add_css_class("flat")
+        self._add.set_tooltip_text("Add to a playlist")
+        self._add.connect("clicked", self._add_to_playlist)
+        actions.append(self._add)
+
         queue = Gtk.Button.new_from_icon_name("view-list-ordered-symbolic")
         queue.add_css_class("flat")
         queue.set_tooltip_text("Queue")
@@ -279,6 +287,12 @@ class PlayerBar(Gtk.Box):
         else:
             self._repeat.add_css_class("accent")
 
+    def _add_to_playlist(self, _button) -> None:
+        track = self._player.current
+        if track is None:
+            return
+        self.ctx.add_to_playlist([track])
+
     def _toggle_favourite(self, _button) -> None:
         track = self._player.current
         if not track:
@@ -300,8 +314,10 @@ class PlayerBar(Gtk.Box):
             self._artist.set_label("")
             self._thumb.set_url(None)
             self._favourite.set_sensitive(False)
+            self._add.set_sensitive(False)
             return
         self._favourite.set_sensitive(True)
+        self._add.set_sensitive(True)
         self._title.set_label(track.get("title") or "")
         self._artist.set_label(track.get("subtitle") or "")
         self._thumb.set_url(track.get("thumb"))

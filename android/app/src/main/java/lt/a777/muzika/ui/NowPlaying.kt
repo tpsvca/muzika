@@ -54,6 +54,7 @@ fun NowPlayingSheet(onDismiss: () -> Unit, toast: (String) -> Unit, onChanged: (
 private fun SongPane(toast: (String) -> Unit, onChanged: () -> Unit) {
     val track = MuzikaPlayer.current
     var favourite by remember(track?.id) { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(track?.id) {
@@ -131,21 +132,45 @@ private fun SongPane(toast: (String) -> Unit, onChanged: () -> Unit) {
             }
         }
 
-        track?.let {
-            TextButton(onClick = {
-                scope.launch {
-                    val state = withContext(Dispatchers.IO) {
-                        Store.toggleFavourite(it).also { _ -> Sync.push() }
+        // Saving what is playing should not mean finding the same song again
+        // in some list to reach its menu.
+        track?.let { playing ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = {
+                    scope.launch {
+                        val state = withContext(Dispatchers.IO) {
+                            Store.toggleFavourite(playing).also { _ -> Sync.push() }
+                        }
+                        favourite = state
+                        toast(if (state) "Added to favourites" else "Removed from favourites")
+                        onChanged()
                     }
-                    favourite = state
-                    toast(if (state) "Added to favourites" else "Removed from favourites")
-                    onChanged()
+                }) {
+                    Icon(if (favourite) Icons.Filled.Star else Icons.Filled.StarBorder, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (favourite) "In favourites" else "Add to favourites")
                 }
-            }) {
-                Icon(if (favourite) Icons.Filled.Star else Icons.Filled.StarBorder, null)
-                Spacer(Modifier.width(8.dp))
-                Text(if (favourite) "In favourites" else "Add to favourites")
+
+                TextButton(onClick = { picking = true }) {
+                    Icon(Icons.Filled.PlaylistAdd, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add to playlist")
+                }
             }
+        }
+    }
+
+    if (picking) {
+        track?.let { playing ->
+            PlaylistPicker(
+                tracks = listOf(playing),
+                onDismiss = { picking = false },
+                toast = toast,
+                onChanged = onChanged,
+            )
         }
     }
 }

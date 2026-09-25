@@ -1,3 +1,18 @@
+## 2026-09-25 — Save the song that is playing, without hunting for it
+
+### Added
+- **What**: **Add to playlist** for the currently playing track, on both apps
+- **Why**: both had a favourites toggle for what was playing, but adding it to a playlist meant leaving the player, finding the same song again in a list, and opening its row menu. The action belongs where the song is.
+- **Desktop**: a new button in the player bar beside the favourites star, opening the existing playlist chooser. It greys out when nothing is playing, like the star does.
+- **Android**: an *Add to playlist* button next to *Add to favourites* on the now-playing screen, opening the existing playlist picker.
+
+### Verified
+- Android: the picker opens **over** the now-playing sheet without the nested-sheet glitch that was the risk here, and dismisses cleanly
+- Adding a track already in the playlist is a no-op, as intended
+- Adding a new one — *The Unforgiven* — took MyTop from 4 songs to 5
+- It reached the desktop: Syncthing carried the file and the import reported `playlists_updated: 1`, with MyTop showing the same 5 songs
+- Desktop reinstalled and runs with the new button, MPRIS responding, no errors
+
 ## 2026-09-25 — Published to GitHub, v1.0.0 released
 
 ### Added
