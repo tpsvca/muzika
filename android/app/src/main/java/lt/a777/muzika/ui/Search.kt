@@ -24,6 +24,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import lt.a777.muzika.data.Track
@@ -67,13 +69,24 @@ fun SearchScreen(nav: Nav) {
         coroutines.launch {
             val found = withContext(Dispatchers.IO) {
                 when (within) {
-                    // "All" is the one that shows every kind at once.
-                    Scope.ALL -> Results(
-                        songs = Sources.searchAll(clean),
-                        cards = Innertube.search(clean, Innertube.F_ARTISTS).take(6) +
-                            Innertube.search(clean, Innertube.F_ALBUMS).take(6) +
-                            Innertube.search(clean, Innertube.F_PLAYLISTS).take(6),
-                    )
+                    // "All" shows every kind at once, so every kind is fetched
+                    // at once - six requests in sequence meant six latencies.
+                    Scope.ALL -> coroutineScope {
+                        val songs = async { Sources.searchAll(clean) }
+                        val artists = async {
+                            Innertube.search(clean, Innertube.F_ARTISTS).take(6)
+                        }
+                        val albums = async {
+                            Innertube.search(clean, Innertube.F_ALBUMS).take(6)
+                        }
+                        val playlists = async {
+                            Innertube.search(clean, Innertube.F_PLAYLISTS).take(6)
+                        }
+                        Results(
+                            songs = songs.await(),
+                            cards = artists.await() + albums.await() + playlists.await(),
+                        )
+                    }
                     Scope.SONGS -> Results(songs = Sources.searchAll(clean))
                     else -> Results(cards = Sources.searchCatalogue(clean, within.filter!!))
                 }

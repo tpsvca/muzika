@@ -1,3 +1,30 @@
+## 2026-09-25 — Search was 25 seconds. It is now under two.
+
+### Fixed
+- **What**: every YouTube Music API call re-downloaded the ~480 KB YouTube Music homepage before doing any work
+- **Why**: the visitor id was looked up as `VISITOR_DATA`, but the page spells it **`visitorData`**. The regex never matched, so nothing was ever cached, and each call paid ~1.7 s and half a megabyte before it started. A visitor id is optional — every endpoint answers without one, which is why this went unnoticed while everything still *worked*. It is now resolved at most once, in the background at startup, and a failure is remembered rather than retried.
+- **What**: a search ran six requests one after another
+- **Why**: the latencies simply added up. Songs, SoundCloud, Bandcamp, artists, albums and playlists are independent, and now run concurrently.
+- **What**: every thumbnail was requested at 544×544, including for list rows 56 dp tall
+- **Why**: roughly four times the pixels that can be displayed — about 1 MB of images per search instead of a tenth of that, plus the decode cost. Rows and cards now ask for 256 px; detail pages still get 544.
+
+### Measured, before and after, against the live API
+
+| | Before | After |
+|---|---|---|
+| One InnerTube call | 5,746 ms | **380 ms** |
+| Artists / albums / playlists | 5.7 / 5.8 / 6.7 s | 0.34 / 0.47 / 0.38 s |
+| Full search, as the screen ran it | **25,320 ms** | **1,774 ms** |
+| Same work fully parallel | 6,278 ms | **529 ms** |
+
+Bandwidth was never the constraint: SoundCloud (72 ms) and Bandcamp (605 ms) were always fast. This was wasted round trips.
+
+### Added
+- `app/src/test/.../SpeedProbe.kt` — times each network path against the real API, so a regression like this shows up as a number instead of a feeling.
+
+### Verified
+- All 7 parser tests still pass; artwork, durations and metadata unchanged.
+
 ## 2026-09-25 — Progress bar on the home-screen widget
 
 ### Added

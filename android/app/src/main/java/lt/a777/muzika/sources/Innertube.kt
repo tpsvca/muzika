@@ -19,6 +19,10 @@ object Innertube {
     private const val BASE = "https://music.youtube.com/youtubei/v1"
     private const val KEY = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30"
     private const val CLIENT_VERSION = "1.20250915.01.00"
+    /** Enough for a grid card on a phone; detail pages ask for more. */
+    private const val THUMB_SIZE = 256
+    private const val COVER_SIZE = 544
+
     private const val UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
@@ -63,18 +67,42 @@ object Innertube {
     // ------------------------------------------------------------- transport
 
     @Volatile private var visitorId: String? = null
+    /** Set as soon as one attempt has been made, successful or not. */
+    @Volatile private var visitorResolved = false
 
-    private fun visitor(): String? {
-        visitorId?.let { return it }
-        return try {
+    /**
+     * A visitor id is optional - every endpoint here answers without one - but
+     * it costs nothing to carry when we have it.
+     *
+     * Getting it means downloading the YouTube Music homepage, which is close
+     * to half a megabyte. This used to happen on *every single request*,
+     * because the key was being looked up as `VISITOR_DATA` when the page
+     * actually spells it `visitorData`, so nothing was ever cached: each call
+     * paid ~1.7s and 476KB before it even started. One attempt is made now, in
+     * the background, and a failure is remembered so it is never retried.
+     */
+    private fun visitor(): String? = visitorId
+
+    private fun resolveVisitorOnce() {
+        if (visitorResolved) return
+        synchronized(this) {
+            if (visitorResolved) return
+            visitorResolved = true
+        }
+        runCatching {
             val request = Request.Builder().url("https://music.youtube.com")
                 .addHeader("User-Agent", UA).addHeader("Accept-Language", "en-US,en;q=0.9").build()
             NpeDownloader.client.newCall(request).execute().use { response ->
-                val html = response.body?.string() ?: return null
-                Regex("\"VISITOR_DATA\"\\s*:\\s*\"([^\"]+)\"").find(html)
-                    ?.groupValues?.get(1)?.also { visitorId = it }
+                val html = response.body?.string() ?: return@use
+                visitorId = Regex("\"visitorData\"\\s*:\\s*\"([^\"]+)\"")
+                    .find(html)?.groupValues?.get(1)
             }
-        } catch (e: Exception) { null }
+        }
+    }
+
+    /** Called once at startup so the first search never waits for it. */
+    fun warmUp() {
+        Thread { resolveVisitorOnce() }.apply { isDaemon = true }.start()
     }
 
     private fun call(endpoint: String, body: JSONObject): JSONObject {
@@ -122,14 +150,21 @@ object Innertube {
     private fun runList(node: JSONObject?): List<JSONObject> =
         node.a("runs")?.objects() ?: emptyList()
 
-    /** Largest thumbnail, upgraded to a usable size when YTM offers a tiny one. */
-    private fun thumb(node: JSONObject?): String? {
+    /**
+     * Artwork at a size worth downloading.
+     *
+     * YouTube serves whatever dimensions the URL asks for, so asking for 544px
+     * everywhere meant list rows 56dp tall pulling roughly four times the
+     * pixels they can show - about a megabyte per search instead of a tenth of
+     * that, plus the decode cost.
+     */
+    private fun thumb(node: JSONObject?, size: Int = THUMB_SIZE): String? {
         val list = node.o("musicThumbnailRenderer").o("thumbnail").a("thumbnails")
             ?: node.a("thumbnails") ?: return null
         val best = list.objects().maxByOrNull { it.optInt("width") } ?: return null
         val url = best.optString("url").ifEmpty { return null }
-        return url.replace(Regex("=w\\d+-h\\d+"), "=w544-h544")
-            .replace(Regex("=s\\d+"), "=s544")
+        return url.replace(Regex("=w\\d+-h\\d+"), "=w$size-h$size")
+            .replace(Regex("=s\\d+"), "=s$size")
     }
 
     private fun sections(response: JSONObject): List<JSONObject> {
@@ -331,7 +366,7 @@ object Innertube {
             .a("contents").o(0).o("musicResponsiveHeaderRenderer")
         val title = runs(header.o("title")).ifEmpty { "Album" }
         val artist = runs(header.o("straplineTextOne"))
-        val cover = thumb(header.o("thumbnail"))
+        val cover = thumb(header.o("thumbnail"), COVER_SIZE)
         val tracks = sections(response).flatMap { shelfItems(it) }
             .filter { it.playable }
             .map { it.toTrack().copy(artist = it.subtitle.ifEmpty { artist },
@@ -351,7 +386,7 @@ object Innertube {
         Page(
             runs(header.o("title")).ifEmpty { "Playlist" },
             runs(header.o("straplineTextOne")),
-            thumb(header.o("thumbnail")) ?: tracks.firstOrNull()?.thumb,
+            thumb(header.o("thumbnail"), COVER_SIZE) ?: tracks.firstOrNull()?.thumb,
             tracks,
         )
     }.getOrNull()
@@ -367,7 +402,7 @@ object Innertube {
             title = runs(header.o("title")).ifEmpty { top?.items?.firstOrNull()?.subtitle ?: "Artist" },
             subtitle = runs(header.o("subscriptionButton").o("subscribeButtonRenderer")
                 .o("longSubscriberCountText")),
-            thumb = thumb(header.o("thumbnail")) ?: top?.items?.firstOrNull()?.thumb,
+            thumb = thumb(header.o("thumbnail"), COVER_SIZE) ?: top?.items?.firstOrNull()?.thumb,
             tracks = top?.items?.filter { it.playable }?.map { it.toTrack() } ?: emptyList(),
             shelves = all.filter { it !== top },
         )

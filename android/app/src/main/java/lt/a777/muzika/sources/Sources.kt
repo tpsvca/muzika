@@ -1,6 +1,9 @@
 package lt.a777.muzika.sources
 
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import lt.a777.muzika.data.Prefs
 import lt.a777.muzika.data.Track
 import okhttp3.MediaType.Companion.toMediaType
@@ -119,19 +122,24 @@ object Sources {
      * search, which knows about albums and durations; NewPipe is the fallback
      * when that answers with nothing.
      */
-    fun searchAll(query: String): Map<String, List<Track>> {
+    suspend fun searchAll(query: String): Map<String, List<Track>> = coroutineScope {
+        // The sources are independent, so waiting for them one at a time only
+        // ever cost the sum of their latencies.
+        val youtube = async(Dispatchers.IO) {
+            Innertube.search(query, Innertube.F_SONGS)
+                .filter { it.playable }.map { it.toTrack() }
+                .ifEmpty { searchYouTube(query) }
+        }
+        val soundcloud = if (Prefs.sourceSoundCloud)
+            async(Dispatchers.IO) { searchSoundCloud(query) } else null
+        val bandcamp = if (Prefs.sourceBandcamp)
+            async(Dispatchers.IO) { searchBandcamp(query) } else null
+
         val out = linkedMapOf<String, List<Track>>()
-        val music = Innertube.search(query, Innertube.F_SONGS)
-            .filter { it.playable }.map { it.toTrack() }
-        (music.ifEmpty { searchYouTube(query) }).takeIf { it.isNotEmpty() }
-            ?.let { out[YOUTUBE] = it }
-        if (Prefs.sourceSoundCloud) {
-            searchSoundCloud(query).takeIf { it.isNotEmpty() }?.let { out[SOUNDCLOUD] = it }
-        }
-        if (Prefs.sourceBandcamp) {
-            searchBandcamp(query).takeIf { it.isNotEmpty() }?.let { out[BANDCAMP] = it }
-        }
-        return out
+        youtube.await().takeIf { it.isNotEmpty() }?.let { out[YOUTUBE] = it }
+        soundcloud?.await()?.takeIf { it.isNotEmpty() }?.let { out[SOUNDCLOUD] = it }
+        bandcamp?.await()?.takeIf { it.isNotEmpty() }?.let { out[BANDCAMP] = it }
+        out
     }
 
     /** Albums, artists or playlists - YouTube Music is the only source with them. */
