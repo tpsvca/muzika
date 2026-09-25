@@ -17,10 +17,6 @@ jobs:
       # The secrets context is not allowed in a step-level `if`, so it is
       # resolved once here into a plain string.
       HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-      # Always pointed at the same path. When the restore step is skipped the
-      # file simply is not there, and the Gradle config falls back to an
-      # unsigned build - which is exactly what a fork should get.
-      MUZIKA_KEYSTORE: ${{ runner.temp }}/muzika.jks
     steps:
       - uses: actions/checkout@v4
 
@@ -31,9 +27,14 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # Exported for the build step only when it actually ran. Unset, the
+      # Gradle config falls back to an unsigned build - which is exactly what
+      # a fork with no secrets should get.
       - name: Restore keystore
         if: env.HAS_KEYSTORE == 'true'
-        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$MUZIKA_KEYSTORE"
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/muzika.jks"
+          echo "MUZIKA_KEYSTORE=$RUNNER_TEMP/muzika.jks" >> "$GITHUB_ENV"
 
       - name: Build release APK
         working-directory: android
