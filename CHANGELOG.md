@@ -1,3 +1,17 @@
+## 2026-09-25 — v1.5.0: the background-playback fix actually reaches phones
+
+### Fixed
+- **What**: v1.4.0 was the newest release, so a phone installing from GitHub still had the bug where playback dies in the background and only comes back after restarting the app
+- **Why**: the fix was committed to `main` but never tagged. Nothing was published, so there was nothing to update to. v1.4.0 predates it.
+
+### Added
+- **Background playback** in Settings. It reports whether Android will let Muzika keep playing once you leave the app, and opens the system exemption dialog when it will not.
+- **Why**: a media foreground service is enough on stock Android — verified on a Pixel, 11 minutes backgrounded across two track changes. Several OEM builds, Nothing OS among them, run their own killer on top and stop the app regardless. There is no API to opt out; the only supported route is the user granting the exemption, so the app says so plainly instead of playing worse in silence.
+- The **version number** now appears in Settings → About. Until now there was no way to tell from inside the app which build was installed.
+
+### Tests
+3 Robolectric tests for the exemption reading and the settings intent. Android total 21, all passing. Verified on device: the row shows the warning state on a phone that is not exempt, and tapping it opens `com.android.settings…RequestIgnoreBatteryOptimizations`.
+
 ## 2026-09-25 — Recently played and My playlists on the desktop Home page
 
 ### Added

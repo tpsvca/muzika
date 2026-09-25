@@ -10,7 +10,10 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +24,7 @@ import lt.a777.muzika.data.LocalMusic
 import lt.a777.muzika.data.Prefs
 import lt.a777.muzika.data.Store
 import lt.a777.muzika.data.Sync
+import lt.a777.muzika.player.BatteryOptimisation
 import lt.a777.muzika.sources.Discover
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -28,6 +32,19 @@ import lt.a777.muzika.sources.Discover
 fun SettingsScreen(nav: Nav) {
     val scope = rememberCoroutineScope()
     val uris = LocalUriHandler.current
+    val context = LocalContext.current
+
+    // Re-read on resume: the user grants this in the system settings and comes
+    // back, and a stale warning here would be worse than none.
+    var unrestricted by remember { mutableStateOf(BatteryOptimisation.isExempt(context)) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        unrestricted = BatteryOptimisation.isExempt(context)
+    }
+    val version = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull()
+    }
     var folderDialog by remember { mutableStateOf(false) }
     var tokenDialog by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -204,6 +221,36 @@ fun SettingsScreen(nav: Nav) {
                 },
             )
 
+            Group("Playback")
+            ListItem(
+                headlineContent = { Text("Background playback") },
+                supportingContent = {
+                    Text(
+                        if (unrestricted)
+                            "Android is allowed to keep Muzika playing when you " +
+                                "leave the app."
+                        else
+                            "Android may stop playback shortly after you leave the " +
+                                "app, and it will not come back on its own. Tap to " +
+                                "let Muzika keep running."
+                    )
+                },
+                leadingContent = {
+                    Icon(
+                        if (unrestricted) Icons.Rounded.CheckCircle
+                        else Icons.Rounded.BatteryAlert,
+                        null,
+                        tint = if (unrestricted) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.error,
+                    )
+                },
+                modifier = Modifier.clickable(enabled = !unrestricted) {
+                    if (!BatteryOptimisation.request(context)) {
+                        nav.toast("Could not open battery settings on this device")
+                    }
+                },
+            )
+
             Group("Sources")
             Text(
                 "YouTube Music is always on. These add their own results to a search.",
@@ -236,7 +283,7 @@ fun SettingsScreen(nav: Nav) {
 
             Group("About")
             ListItem(
-                headlineContent = { Text("Muzika") },
+                headlineContent = { Text("Muzika" + (version?.let { " $it" } ?: "")) },
                 supportingContent = {
                     Text("Plays from YouTube Music, SoundCloud and Bandcamp without an " +
                         "account. Suggestions are worked out on this device from what you " +
