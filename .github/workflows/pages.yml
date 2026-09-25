@@ -23,7 +23,12 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # GitHub Pages is unavailable for private repositories on the free plan,
+      # so this job fails until the repo is public. `enablement` then turns
+      # Pages on by itself, with nothing to click in Settings.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
