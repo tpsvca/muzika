@@ -11,6 +11,7 @@ import logging
 import shutil
 import threading
 import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,11 @@ ARTIST = "artist"
 PLAYLIST = "playlist"
 
 _YTDLP_CACHE = Path.home() / ".cache" / "yt-dlp"
+
+# Lyrics are cached in memory: they never change, and a miss is worth caching
+# too so the tab stops re-asking four providers about a song that has none.
+_LYRICS_CACHE_MAX = 128
+_LYRICS_MISS = object()   # distinguishes "not cached" from "cached as None"
 
 # LRCLIB is a free, key-less community lyrics database that also serves synced
 # (LRC) lyrics, which YouTube Music often lacks even when it has plain text.
@@ -231,6 +237,8 @@ class Api:
         # Resolved stream URLs. Working one out costs yt-dlp a round trip
         # (~1.3s measured), and it was being paid again on every replay.
         self._stream_cache: dict[str, tuple[str, dict, float]] = {}
+        self._lyrics_cache: OrderedDict[str, tuple[dict | None, float]] = OrderedDict()
+        self._lyrics_lock = threading.Lock()
 
     @property
     def ytm(self) -> YTMusic:
@@ -490,15 +498,71 @@ class Api:
                                            limit=limit, shuffle=shuffle)
         return [n for n in (normalise(t) for t in data.get("tracks", [])) if n]
 
-    def lyrics(self, video_id: str, track: dict | None = None) -> dict | None:
+    def lyrics(self, video_id: str, track: dict | None = None,
+               refresh: bool = False) -> dict | None:
         """Lyrics for a track, from whichever source has them.
 
         Synced lyrics from *any* provider beat plain text from a closer one -
         a wall of untimed text cannot follow the song, so it is the last resort
         rather than the first answer.
 
+        Cached: the words for a track do not change, and four providers is an
+        expensive way to learn that twice. `refresh` drops the entry first, so
+        a deliberate retry really does go back out.
+
         Returns {"text", "source", "lines": [(ms, text)] | None, "provider"}.
         """
+        if refresh:
+            self._forget_lyrics(video_id)
+        else:
+            hit = self._cached_lyrics(video_id)
+            if hit is not _LYRICS_MISS:
+                return hit
+
+        result = self._lookup_lyrics(video_id, track)
+        self._remember_lyrics(video_id, result, track)
+        return result
+
+    # ------------------------------------------------------------ lyric cache
+
+    def _cached_lyrics(self, video_id: str):
+        """The cached answer, or the _LYRICS_MISS sentinel when there is none.
+
+        A sentinel rather than None because "we looked and there are no
+        lyrics" is itself worth caching - otherwise every visit to the tab
+        re-asks four providers for a song that has none.
+        """
+        with self._lyrics_lock:
+            entry = self._lyrics_cache.get(video_id)
+            if entry is None:
+                return _LYRICS_MISS
+            value, expires_at = entry
+            if time.time() >= expires_at:
+                del self._lyrics_cache[video_id]
+                return _LYRICS_MISS
+            self._lyrics_cache.move_to_end(video_id)
+            return value
+
+    def _remember_lyrics(self, video_id: str, value: dict | None,
+                         track: dict | None) -> None:
+        if not video_id:
+            return
+        song = int((track or {}).get("duration") or 0)
+        # Comfortably past the end of the song either way, so skipping back or
+        # repeating costs nothing; a miss expires sooner, so lyrics published
+        # later are not written off for the whole session.
+        ttl = max(3600, song * 3) if value else max(600, song * 2)
+        with self._lyrics_lock:
+            self._lyrics_cache[video_id] = (value, time.time() + ttl)
+            self._lyrics_cache.move_to_end(video_id)
+            while len(self._lyrics_cache) > _LYRICS_CACHE_MAX:
+                self._lyrics_cache.popitem(last=False)
+
+    def _forget_lyrics(self, video_id: str) -> None:
+        with self._lyrics_lock:
+            self._lyrics_cache.pop(video_id, None)
+
+    def _lookup_lyrics(self, video_id: str, track: dict | None) -> dict | None:
         plain: list[dict] = []
 
         youtube = self._youtube_lyrics(video_id)
@@ -622,15 +686,27 @@ class Api:
         album = track.get("album") or ""
         duration = int(track.get("duration") or 0)
 
+        # Timed lyrics are the whole point of the pane, so an untimed hit is
+        # kept aside rather than returned: a later variant may still have a
+        # timed version. Settling for the first hit is why the same song could
+        # follow along on one device and sit there as a static wall on
+        # another - the two had slightly different titles or artists, so they
+        # entered the loop at different variants.
+        plain: dict | None = None
         for candidate_title, candidate_artist in _title_variants(title, artist):
             if not candidate_artist:
-                hit = self._lrclib_search(candidate_title, "", duration)
+                hits = [self._lrclib_search(candidate_title, "", duration)]
             else:
-                hit = (self._lrclib_get(candidate_title, candidate_artist, album, duration)
-                       or self._lrclib_search(candidate_title, candidate_artist, duration))
-            if hit:
-                return hit
-        return None
+                hits = [self._lrclib_get(candidate_title, candidate_artist, album, duration),
+                        self._lrclib_search(candidate_title, candidate_artist, duration)]
+            for hit in hits:
+                if not hit:
+                    continue
+                if hit.get("lines"):
+                    return hit
+                if plain is None:
+                    plain = hit
+        return plain
 
     def _lrclib_request(self, path: str, params: dict):
         try:

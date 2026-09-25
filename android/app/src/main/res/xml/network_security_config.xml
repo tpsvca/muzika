@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Everything is HTTPS except one lyrics endpoint.
+
+  Since Android 9 cleartext is refused by default, which is right - but it
+  meant the KuGou lyrics provider could never answer, because its search host
+  serves no HTTPS at all. Three requests per lookup were being made and
+  silently refused, and a song whose only timed lyrics live there showed none.
+
+  So the exception is exactly one host, and only that host. The other two
+  KuGou endpoints do serve HTTPS and are called over it.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">mobilecdn.kugou.com</domain>
+    </domain-config>
+</network-security-config>

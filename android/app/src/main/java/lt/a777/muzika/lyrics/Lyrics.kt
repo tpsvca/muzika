@@ -32,22 +32,94 @@ object Lyrics {
     )
 
     fun fetch(track: Track): LyricsResult? {
+        cached(track.id)?.let { return it.value }
+
         val plain = mutableListOf<LyricsResult>()
+        var found: LyricsResult? = null
         for (provider in listOf(::lrclib, ::netease, ::kugou)) {
             val result = try {
                 provider(track)
             } catch (e: Exception) {
                 Log.d(TAG, "provider failed: ${e.message}"); null
             }
-            if (result != null && result.synced) return result
+            if (result != null && result.synced) { found = result; break }
             if (result != null) plain.add(result)
         }
-        return plain.firstOrNull()
+        val answer = found ?: plain.firstOrNull()
+        remember(track, answer)
+        return answer
+    }
+
+    // ----------------------------------------------------------------- cache
+
+    private class Entry(val value: LyricsResult?, val expiresAt: Long)
+
+    /**
+     * Lyrics for a track do not change, and three providers is an expensive
+     * way to learn that twice. Leaving the Lyrics tab and coming back used to
+     * refetch the lot, as did replaying the same song.
+     *
+     * A hit is held for well past the end of the song, so skipping back or
+     * hitting repeat is free; a miss is held for a shorter while, long enough
+     * to stop the tab hammering three providers, short enough that a song
+     * whose lyrics appear later is not written off for the session.
+     */
+    private const val MAX_ENTRIES = 128
+    private val cache = object : LinkedHashMap<String, Entry>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>?) =
+            size > MAX_ENTRIES
+    }
+
+    private fun ttlFor(track: Track, hit: Boolean): Long {
+        val song = track.duration.coerceAtLeast(0) * 1000L
+        return if (hit) maxOf(60 * 60_000L, song * 3) else maxOf(10 * 60_000L, song * 2)
+    }
+
+    private fun cached(id: String): Entry? = synchronized(cache) {
+        val hit = cache[id] ?: return null
+        if (System.currentTimeMillis() >= hit.expiresAt) {
+            cache.remove(id)
+            return null
+        }
+        hit
+    }
+
+    private fun remember(track: Track, value: LyricsResult?) {
+        if (track.id.isEmpty()) return
+        synchronized(cache) {
+            cache[track.id] = Entry(value, System.currentTimeMillis() + ttlFor(track, value != null))
+        }
+    }
+
+    /** Forget one track, so "try again" really does try again. */
+    fun forget(track: Track) {
+        synchronized(cache) { cache.remove(track.id) }
     }
 
     // ------------------------------------------------------------- providers
 
+    /**
+     * LRCLIB, which unlike the other two serves both timed and untimed lyrics.
+     *
+     * That distinction is the whole point of the pane, so nothing here settles
+     * for untimed text while a timed version might still be a variant away.
+     * It used to return the first formattable hit of the first variant that
+     * answered, which is why the same song could follow along on one device
+     * and sit there as a static wall on another: the two had slightly
+     * different titles or artists, so they entered the loop at different
+     * variants. Untimed hits are now kept aside and only used once every
+     * variant has been tried.
+     */
     private fun lrclib(track: Track): LyricsResult? {
+        var plain: LyricsResult? = null
+
+        fun consider(result: LyricsResult?): LyricsResult? {
+            if (result == null) return null
+            if (result.synced) return result
+            if (plain == null) plain = result
+            return null
+        }
+
         for ((title, artist) in variants(track)) {
             val params = buildString {
                 append("track_name=").append(enc(title))
@@ -55,22 +127,26 @@ object Lyrics {
                 if (track.duration > 0) append("&duration=").append(track.duration)
             }
             get("https://lrclib.net/api/get?$params")?.let { body ->
-                format(JSONObject(body), "LRCLIB")?.let { return it }
+                consider(format(JSONObject(body), "LRCLIB"))?.let { return it }
             }
             val search = get(
                 "https://lrclib.net/api/search?track_name=${enc(title)}" +
                     if (artist.isNotEmpty()) "&artist_name=${enc(artist)}" else ""
             ) ?: continue
             val array = JSONArray(search)
-            for (i in 0 until minOf(array.length(), 6)) {
-                val entry = array.getJSONObject(i)
-                if (track.duration > 0 &&
-                    Math.abs(entry.optInt("duration") - track.duration) > 20
-                ) continue
-                format(entry, "LRCLIB")?.let { return it }
+            val entries = (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+                .filter {
+                    track.duration <= 0 ||
+                        Math.abs(it.optInt("duration") - track.duration) <= 20
+                }
+                // One response routinely carries both kinds; take the timed
+                // ones first rather than whichever LRCLIB happened to rank top.
+                .sortedBy { it.optString("syncedLyrics").isEmpty() }
+            for (entry in entries.take(6)) {
+                consider(format(entry, "LRCLIB"))?.let { return it }
             }
         }
-        return null
+        return plain
     }
 
     private fun format(entry: JSONObject, provider: String): LyricsResult? {
@@ -121,12 +197,12 @@ object Lyrics {
                     Math.abs(song.optInt("duration") - track.duration) > 20
                 ) continue
                 val candidates = get(
-                    "http://krcs.kugou.com/search?ver=1&man=yes&client=mobi&hash=${song.optString("hash")}"
+                    "https://krcs.kugou.com/search?ver=1&man=yes&client=mobi&hash=${song.optString("hash")}"
                 )?.let { JSONObject(it).optJSONArray("candidates") } ?: continue
                 for (j in 0 until minOf(candidates.length(), 3)) {
                     val candidate = candidates.getJSONObject(j)
                     val payload = get(
-                        "http://lyrics.kugou.com/download?ver=1&client=pc" +
+                        "https://lyrics.kugou.com/download?ver=1&client=pc" +
                             "&id=${candidate.optString("id")}" +
                             "&accesskey=${candidate.optString("accesskey")}&fmt=lrc&charset=utf8"
                     )?.let { JSONObject(it).optString("content") } ?: continue

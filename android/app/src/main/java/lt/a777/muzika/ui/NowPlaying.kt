@@ -41,10 +41,77 @@ fun NowPlayingSheet(onDismiss: () -> Unit, toast: (String) -> Unit, onChanged: (
                         text = { Text(label) })
                 }
             }
-            when (page) {
-                0 -> SongPane(toast, onChanged)
-                1 -> LyricsPane()
-                else -> QueuePane()
+            // The pane takes the space that is left, so the bar below it is
+            // always on screen rather than scrolled past.
+            Box(Modifier.weight(1f)) {
+                when (page) {
+                    0 -> SongPane(toast, onChanged)
+                    1 -> LyricsPane()
+                    else -> QueuePane()
+                }
+            }
+            // Song has full transport of its own; Lyrics and Queue had none at
+            // all, so reading the words meant going back a tab to pause.
+            if (page != 0) SheetMiniBar()
+        }
+    }
+}
+
+/**
+ * Transport for the tabs that have none: what is playing, and enough control
+ * not to have to leave the tab to use it.
+ */
+@Composable
+private fun SheetMiniBar() {
+    val track = MuzikaPlayer.current ?: return
+    val duration = MuzikaPlayer.durationMs
+    val progress =
+        if (duration > 0) (MuzikaPlayer.positionMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
+
+    Surface(tonalElevation = 3.dp) {
+        Column {
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(2.dp),
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        track.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        track.artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(
+                    onClick = { MuzikaPlayer.previous() },
+                    enabled = MuzikaPlayer.hasPrevious,
+                ) {
+                    Icon(Icons.Default.SkipPrevious, "Previous")
+                }
+                FilledIconButton(onClick = { MuzikaPlayer.toggle() }) {
+                    Icon(
+                        if (MuzikaPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        if (MuzikaPlayer.isPlaying) "Pause" else "Play",
+                    )
+                }
+                IconButton(
+                    onClick = { MuzikaPlayer.next() },
+                    enabled = MuzikaPlayer.hasNext,
+                ) {
+                    Icon(Icons.Default.SkipNext, "Next")
+                }
             }
         }
     }
@@ -180,11 +247,15 @@ private fun LyricsPane() {
     val track = MuzikaPlayer.current
     var result by remember(track?.id) { mutableStateOf<LyricsResult?>(null) }
     var loading by remember(track?.id) { mutableStateOf(true) }
+    var attempt by remember(track?.id) { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(track?.id) {
+    // Cached, so re-entering the tab or replaying the song is instant; a
+    // deliberate retry drops the entry first so it really does try again.
+    LaunchedEffect(track?.id, attempt) {
         result = null; loading = true
         if (track != null) {
+            if (attempt > 0) Lyrics.forget(track)
             result = withContext(Dispatchers.IO) { Lyrics.fetch(track) }
         }
         loading = false
@@ -207,8 +278,14 @@ private fun LyricsPane() {
         loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
-        result == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        result == null -> Column(
+            Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Text("No lyrics found", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
+            TextButton(onClick = { attempt++ }) { Text("Try again") }
         }
         else -> LazyColumn(
             state = listState,
@@ -232,13 +309,28 @@ private fun LyricsPane() {
                 )
             }
             item {
-                Text(
-                    (if (lines != null) "Synced lyrics from " else "Lyrics from ") +
-                        (result?.provider ?: ""),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 24.dp)
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(vertical = 24.dp),
+                ) {
+                    Text(
+                        (if (lines != null) "Synced lyrics from " else "Lyrics from ") +
+                            (result?.provider ?: ""),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (lines == null) {
+                        // Otherwise an untimed wall of text just looks broken:
+                        // the line never highlights and nothing says why.
+                        Text(
+                            "No timings for this one, so it cannot follow the song.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        TextButton(onClick = { attempt++ }) { Text("Look again") }
+                    }
+                }
             }
         }
     }

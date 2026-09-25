@@ -336,6 +336,86 @@ class PlayerBar(Gtk.Box):
             self._shuffle.set_active(self._player.shuffle)
 
 
+class MiniBar(Gtk.Box):
+    """Transport for the Now Playing tabs that have none of their own.
+
+    The Song tab carries the full controls. Lyrics and Queue carried nothing,
+    so reading the words meant switching back a tab to pause. This is the
+    smallest thing that fixes that: what is playing, where it is, and the
+    three buttons you actually reach for.
+    """
+
+    def __init__(self, player):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self._player = player
+        self.add_css_class("toolbar")
+
+        self._seek = SeekBar(player, compact=True)
+        self._seek.set_margin_start(12)
+        self._seek.set_margin_end(12)
+        self.append(self._seek)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.set_margin_start(12)
+        row.set_margin_end(12)
+        row.set_margin_bottom(6)
+
+        labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        labels.set_hexpand(True)
+        labels.set_valign(Gtk.Align.CENTER)
+        self._title = Gtk.Label(xalign=0.0)
+        self._title.set_ellipsize(3)  # Pango.EllipsizeMode.END
+        self._title.add_css_class("heading")
+        self._subtitle = Gtk.Label(xalign=0.0)
+        self._subtitle.set_ellipsize(3)
+        self._subtitle.add_css_class("caption")
+        self._subtitle.add_css_class("dim-label")
+        labels.append(self._title)
+        labels.append(self._subtitle)
+        row.append(labels)
+
+        def button(icon: str, tooltip: str, callback) -> Gtk.Button:
+            item = Gtk.Button.new_from_icon_name(icon)
+            item.add_css_class("flat")
+            item.set_tooltip_text(tooltip)
+            item.connect("clicked", callback)
+            row.append(item)
+            return item
+
+        button("media-skip-backward-symbolic", "Previous",
+               lambda _b: self._player.previous())
+        self._play = Gtk.Button.new_from_icon_name("media-playback-start-symbolic")
+        self._play.add_css_class("circular")
+        self._play.add_css_class("suggested-action")
+        self._play.connect("clicked", lambda _b: self._player.toggle())
+        row.append(self._play)
+        button("media-skip-forward-symbolic", "Next", lambda _b: self._player.next())
+
+        self.append(row)
+
+        player.connect("track-changed", lambda *_: self.refresh())
+        player.connect("state-changed", lambda *_: self.refresh_state())
+        player.connect("position-changed",
+                       lambda _p, position, duration: self._seek.update(position, duration))
+        self.refresh()
+
+    def refresh(self) -> None:
+        track = self._player.current
+        self._title.set_text((track or {}).get("title") or "Nothing playing")
+        self._subtitle.set_text((track or {}).get("subtitle") or "")
+        self.refresh_state()
+
+    def refresh_state(self) -> None:
+        if self._player.loading:
+            self._play.set_icon_name("content-loading-symbolic")
+            self._play.set_tooltip_text("Loading\u2026")
+            return
+        playing = self._player.playing
+        self._play.set_icon_name(
+            "media-playback-pause-symbolic" if playing else "media-playback-start-symbolic")
+        self._play.set_tooltip_text("Pause" if playing else "Play")
+
+
 class NowPlayingPage(Adw.NavigationPage):
     """Big artwork, transport, lyrics and the queue."""
 
@@ -365,6 +445,14 @@ class NowPlayingPage(Adw.NavigationPage):
         # gets a bottom bar instead.
         self._switcher_bar = Adw.ViewSwitcherBar()
         self._switcher_bar.set_stack(self._stack)
+
+        # Song has its own transport; the other two tabs get this instead, so
+        # you never have to leave the lyrics to pause.
+        self._mini = MiniBar(self._player)
+        self._mini_revealer = Gtk.Revealer()
+        self._mini_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP)
+        self._mini_revealer.set_child(self._mini)
+        toolbar.add_bottom_bar(self._mini_revealer)
         toolbar.add_bottom_bar(self._switcher_bar)
 
         page = self._stack.add_titled(self._build_song(), "song", "Song")
@@ -453,12 +541,14 @@ class NowPlayingPage(Adw.NavigationPage):
             self._load_lyrics()
 
     def _on_tab_changed(self) -> None:
-        if self._stack.get_visible_child_name() == "lyrics":
+        tab = self._stack.get_visible_child_name()
+        self._mini_revealer.set_reveal_child(tab in ("lyrics", "queue"))
+        if tab == "lyrics":
             self._load_lyrics()
 
     # ----------------------------------------------------------------- lyrics
 
-    def _load_lyrics(self) -> None:
+    def _load_lyrics(self, refresh: bool = False) -> None:
         track = self._player.current
         if track is None:
             status = Adw.StatusPage()
@@ -466,7 +556,7 @@ class NowPlayingPage(Adw.NavigationPage):
             status.set_title("No song playing")
             self._lyrics_slot.set_child(status)
             return
-        if self._lyrics_for == track["id"]:
+        if self._lyrics_for == track["id"] and not refresh:
             return
         self._lyrics_for = track["id"]
 
@@ -486,6 +576,11 @@ class NowPlayingPage(Adw.NavigationPage):
                 status.set_title("No lyrics")
                 status.set_description(
                     "Neither YouTube Music nor LRCLIB has lyrics for this song.")
+                again = Gtk.Button(label="Try again")
+                again.add_css_class("pill")
+                again.set_halign(Gtk.Align.CENTER)
+                again.connect("clicked", lambda _b: self._load_lyrics(refresh=True))
+                status.set_child(again)
                 self._lyrics_slot.set_child(status)
                 return
             self._lyrics_slot.set_child(self._render_lyrics(result))
@@ -498,7 +593,8 @@ class NowPlayingPage(Adw.NavigationPage):
             status.set_title("Lyrics unavailable")
             self._lyrics_slot.set_child(status)
 
-        tasks.run_async(lambda: self.ctx.api.lyrics(video_id, track), done, failed)
+        tasks.run_async(
+            lambda: self.ctx.api.lyrics(video_id, track, refresh=refresh), done, failed)
 
     def _render_lyrics(self, data: dict) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -532,6 +628,21 @@ class NowPlayingPage(Adw.NavigationPage):
             source.add_css_class("dim-label")
             source.set_margin_top(18)
             box.append(source)
+        if not lines:
+            # Without this an untimed wall of text just looks broken: no line
+            # ever highlights and nothing says why.
+            why = Gtk.Label(label="No timings for this one, so it cannot follow the song.")
+            why.add_css_class("caption")
+            why.add_css_class("dim-label")
+            why.set_wrap(True)
+            why.set_justify(Gtk.Justification.CENTER)
+            box.append(why)
+            again = Gtk.Button(label="Look again")
+            again.add_css_class("pill")
+            again.set_halign(Gtk.Align.CENTER)
+            again.set_margin_top(6)
+            again.connect("clicked", lambda _b: self._load_lyrics(refresh=True))
+            box.append(again)
 
         clamp = Adw.Clamp()
         clamp.set_maximum_size(620)

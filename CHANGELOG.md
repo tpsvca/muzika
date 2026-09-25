@@ -1,3 +1,27 @@
+## 2026-09-25 — Lyrics cached, timed lyrics found more often, transport on every tab
+
+### Added — lyrics cache (both apps)
+- **What**: lyrics are now held in memory per track. Leaving the Lyrics tab and coming back, or replaying the song, no longer goes back to the network.
+- **Why**: nothing was cached. Every visit asked up to four providers again, for words that never change.
+- Held for **max(1 hour, three times the song length)** on a hit, so skipping back or repeating is free; a **miss** is cached too, for max(10 minutes, twice the song length) — short enough that lyrics published later are not written off for the session, long enough to stop the tab hammering four providers for a song that has none.
+- Bounded at 128 tracks, least-recently-used dropped first.
+- **Measured (desktop)**: first look 961 ms, second **0.0 ms**, miss 6,250 ms then **0.01 ms**. A deliberate "Try again" drops the entry and really does go back out (252 ms).
+
+### Fixed — the words could not follow the song
+- **What**: an untimed wall of lyrics was sometimes returned while timed ones existed
+- **Why**: the LRCLIB provider returned the first hit it could format, timed or not, from the first title variant that answered. It also took the first six search results and *then* filtered by duration, so six wrong-length matches meant no lyrics at all. Untimed hits are now kept aside until every variant has been tried, results are filtered by duration first and timed entries are preferred within a single response.
+- **Evidence**: emulating the Android lookup exactly against live LRCLIB over 16 real tracks, 2 changed from untimed to timed ("Redneck", "Down the Drain" — both without an artist). A track restored from the synced library or read off a badly tagged file arrives with no artist, while the same song from a search arrives with one — which is how two devices could disagree about the same song.
+- **What**: the KuGou lyrics provider could never answer on Android
+- **Why**: its search host serves no HTTPS at all, and Android has refused cleartext by default since Android 9 — the app declared no exception, so three requests per lookup were made and silently refused. A scoped network-security config now permits cleartext for that one host, and the other two KuGou endpoints were switched to HTTPS.
+- Untimed lyrics now say so — "No timings for this one, so it cannot follow the song" — with a **Look again** button, instead of sitting there as a static wall with no explanation. "No lyrics found" gained a retry too.
+
+### Added — transport on the Lyrics and Queue tabs
+- **What**: a compact player bar at the bottom of both tabs, on desktop and Android: what is playing, where it is, and previous / play-pause / next
+- **Why**: the Song tab carried all the controls, so reading the lyrics meant switching back a tab just to pause.
+
+### Tests
+6 Android (live provider tests, including the cache and the artist-less lookup) and 12 desktop. Verified on device: the mini bar appears on both tabs, the lyrics view scrolls with the song, and re-entering the tab shows cached lyrics immediately. Totals: Android 27, desktop 26.
+
 ## 2026-09-25 — v1.5.0: the background-playback fix actually reaches phones
 
 ### Fixed
