@@ -138,6 +138,7 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _backend_changed(self, row, _param) -> None:
         key = BACKENDS[row.get_selected()][0]
         sync_mod.put("sync_backend", key)
+        self.window.watch_sync_file()
         row.set_subtitle(BACKENDS[row.get_selected()][2])
         self._update_backend_rows()
 
@@ -177,6 +178,7 @@ class SettingsDialog(Adw.PreferencesDialog):
                 return
             sync_mod.set_sync_folder(folder.get_path())
             self._folder_row.set_subtitle(folder.get_path())
+            self.window.watch_sync_file()
             self._refresh_share_row()
             self._toast(f"Sync folder set to {folder.get_basename()}")
 

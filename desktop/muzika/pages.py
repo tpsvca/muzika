@@ -277,14 +277,25 @@ class SearchPage(BasePage):
         filter_ = self._filter
 
         def work():
-            # Other sources are searched alongside YouTube; each one is
-            # independently guarded, so a dead provider costs results but
-            # never the whole search.
-            return {
-                "youtube": self.ctx.api.search(query, filter_, limit=40),
-                "sources": self.ctx.api.search_sources(
-                    query, [source_mod.SOUNDCLOUD, source_mod.BANDCAMP], limit=12),
-            }
+            # Other sources are searched alongside YouTube - genuinely
+            # alongside, not after it. Each one is independently guarded, so a
+            # dead provider costs results but never the whole search.
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                youtube_job = pool.submit(
+                    self.ctx.api.search, query, filter_, 20)
+                sources_job = pool.submit(
+                    self.ctx.api.search_sources, query,
+                    [source_mod.SOUNDCLOUD, source_mod.BANDCAMP], 12)
+                try:
+                    youtube = youtube_job.result()
+                except Exception:
+                    youtube = []
+                try:
+                    extra = sources_job.result()
+                except Exception:
+                    extra = {}
+            return {"youtube": youtube, "sources": extra}
 
         tasks.run_async(
             work,

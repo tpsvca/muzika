@@ -198,6 +198,16 @@ object MuzikaPlayer {
         }
     }
 
+    /**
+     * Work out the next track's stream while this one plays, so pressing skip
+     * - or simply reaching the end - does not mean waiting a second or two for
+     * an extractor.
+     */
+    private fun prefetchNext() {
+        val next = order.getOrNull(cursor + 1)?.let { queue.getOrNull(it) } ?: return
+        scope.launch(Dispatchers.IO) { Sources.prefetch(next) }
+    }
+
     /** One place that builds the media item, so recovery cannot drift from it. */
     private fun mediaItem(track: Track, url: String): MediaItem = MediaItem.Builder()
         .setUri(url)
@@ -374,6 +384,7 @@ object MuzikaPlayer {
             exo?.prepare()
             exo?.play()
             withContext(Dispatchers.IO) { Store.recordPlay(track) }
+            prefetchNext()
         }
     }
 }

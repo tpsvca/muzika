@@ -1,3 +1,29 @@
+## 2026-09-25 — Desktop speed, song loading, and live updates
+
+### Fixed — speed
+- **What**: a desktop search made **three sequential** POSTs (466 + 370 + 1033 ms) and only then searched SoundCloud and Bandcamp, also one after the other
+- **Why**: everything was serial inside one worker thread, so the latencies simply added up. The two YouTube Music pages now run together, the other sources run together, and the whole lot runs alongside rather than after. `limit` dropped from 40 to 20, which also stops ytmusicapi fetching continuation pages nobody scrolls to.
+- **What**: **every play resolved the stream from scratch** — 1.2-1.5 s on the desktop, 1.1-2.6 s on Android, *including replaying the song you just heard*
+- **Why**: nothing was cached. Both apps now keep resolved URLs until shortly before they expire (YouTube states the expiry in the URL itself; anything else gets 30 minutes), and both **prefetch the next track while the current one plays**, so skipping and reaching the end are instant instead of a round trip.
+
+### Added — live updates
+The desktop watched nothing: a playlist changed on your phone only appeared after a restart. It now monitors the library file and reloads when another device writes to it, debounced, and ignores its own writes so it cannot loop. Settings re-arms the watcher when the folder or backend changes.
+
+### Measured
+
+| | Before | After |
+|---|---|---|
+| Desktop YouTube search | 1,892 ms | **~1,250 ms** |
+| Desktop stream, replay | 1,471 ms | **0 ms** |
+| Android stream, replay | 1,517 ms | **0 ms** |
+| External change picked up | restart required | **~4 s, no restart** |
+
+Local database queries were never the problem — playlists, favourites, history and the local index all return in under a millisecond.
+
+### Still slow, and not fixed here
+- **SoundCloud and Bandcamp on the desktop: 1.5-2.9 s**, against 72 ms for the same SoundCloud search on Android. The desktop goes through yt-dlp's `scsearch`; Android uses NewPipeExtractor. That gap is now the slowest part of a desktop search.
+- **First play of a track not seen before** still costs 1.2-2.6 s in both apps. That is the extractor doing real work, and only the cache and prefetch hide it.
+
 ## 2026-09-25 — Search was 25 seconds. It is now under two.
 
 ### Fixed

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import weakref
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
@@ -32,6 +34,9 @@ class MuzikaWindow(Adw.ApplicationWindow):
         self._now_playing: NowPlayingPage | None = None
         self._song_rows: list[weakref.ref] = []
         self._export_source = 0
+        self._sync_monitor = None
+        self._sync_reload_source = 0
+        self._own_write_at = 0.0
 
         self.set_title("Muzika")
         self.set_default_size(1120, 760)
@@ -74,6 +79,7 @@ class MuzikaWindow(Adw.ApplicationWindow):
         self.refresh_sidebar()
         if sync_mod.sync_folder() is not None:
             GLib.idle_add(lambda: (self.sync_library(quiet=True), False)[1])
+        self.watch_sync_file()
         self.activate_destination("home")
 
     # ----------------------------------------------------------------- sidebar
@@ -375,8 +381,63 @@ class MuzikaWindow(Adw.ApplicationWindow):
         self._export_source = 0
         folder = sync_mod.sync_folder()
         if folder is not None:
+            self._own_write_at = time.time()
             tasks.run_async(lambda: sync_mod.export_library(self.store, folder),
                             None, lambda exc: self.toast(f"Could not write sync file: {exc}"))
+        return False
+
+    # ------------------------------------------------- live updates from sync
+
+    def watch_sync_file(self) -> None:
+        """Pick up changes made on another device without a restart.
+
+        Syncthing (or whatever carries the folder) rewrites the library file
+        when a phone changes something. Watching it means a playlist edited on
+        the phone appears here a second later, instead of waiting for the next
+        launch.
+        """
+        if getattr(self, "_sync_monitor", None) is not None:
+            self._sync_monitor.cancel()
+            self._sync_monitor = None
+        folder = sync_mod.sync_folder()
+        if folder is None or sync_mod.backend() != sync_mod.BACKEND_FOLDER:
+            return
+        target = Gio.File.new_for_path(str(folder / sync_mod.FILENAME))
+        self._sync_monitor = target.monitor_file(Gio.FileMonitorFlags.NONE, None)
+        self._sync_monitor.connect("changed", self._on_sync_file_changed)
+
+    def _on_sync_file_changed(self, _monitor, _file, _other, event) -> None:
+        if event not in (Gio.FileMonitorEvent.CHANGES_DONE_HINT,
+                         Gio.FileMonitorEvent.CREATED):
+            return
+        # Our own export rewrites this file; reacting to it would be a loop.
+        if time.time() - getattr(self, "_own_write_at", 0.0) < 8:
+            return
+        if self._sync_reload_source:
+            GLib.source_remove(self._sync_reload_source)
+        # A sync client can touch the file several times as it lands.
+        self._sync_reload_source = GLib.timeout_add(1500, self._reload_from_sync)
+
+    def _reload_from_sync(self) -> bool:
+        self._sync_reload_source = 0
+
+        def work():
+            return sync_mod.import_library(self.store)
+
+        def done(result):
+            if not result.get("ok"):
+                return
+            changed = (result.get("playlists_added", 0)
+                       + result.get("playlists_updated", 0)
+                       + result.get("tracks_added", 0)
+                       + result.get("favourites_added", 0)
+                       + result.get("library_added", 0))
+            if not changed:
+                return
+            self.refresh_library()
+            self.toast("Library updated from another device")
+
+        tasks.run_async(work, done, lambda _exc: None)
         return False
 
     def make_song_row(self, track: dict, siblings: list[dict], position: int,

@@ -8,9 +8,10 @@ ever touches a raw ytmusicapi payload.
 from __future__ import annotations
 
 import logging
-import re
 import shutil
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -224,6 +225,12 @@ class Api:
     def __init__(self) -> None:
         self._ytm: YTMusic | None = None
         self._lock = threading.Lock()
+        # requests.Session is not thread-safe, so anything run in parallel gets
+        # its own client rather than sharing one across threads.
+        self._local = threading.local()
+        # Resolved stream URLs. Working one out costs yt-dlp a round trip
+        # (~1.3s measured), and it was being paid again on every replay.
+        self._stream_cache: dict[str, tuple[str, dict, float]] = {}
 
     @property
     def ytm(self) -> YTMusic:
@@ -231,6 +238,15 @@ class Api:
             if self._ytm is None:
                 self._ytm = YTMusic()
             return self._ytm
+
+    @property
+    def ytm_local(self) -> YTMusic:
+        """A client owned by the calling thread, for parallel work."""
+        client = getattr(self._local, "ytm", None)
+        if client is None:
+            client = YTMusic()
+            self._local.ytm = client
+        return client
 
     # ---------------------------------------------------------------- browse
 
@@ -352,18 +368,31 @@ class Api:
                     "subtitle": subtitle.strip(" \u2022"), "thumb": thumb, "duration": 0}
         return None
 
-    def search(self, query: str, filter_: str | None = None, limit: int = 30) -> list[dict]:
-        results = self.ytm.search(query, filter=filter_, limit=limit)
-        items = [n for n in (normalise(r) for r in results) if n]
+    def search(self, query: str, filter_: str | None = None, limit: int = 20) -> list[dict]:
         if filter_ is not None:
-            return items
+            results = self.ytm.search(query, filter=filter_, limit=limit)
+            return [n for n in (normalise(r) for r in results) if n]
+
         # The unfiltered endpoint returns songs with no artists and no album -
         # that data only comes back when the songs filter is applied, so take
-        # the song rows from there and keep everything else from the mixed page.
-        try:
-            songs = self.ytm.search(query, filter="songs", limit=limit)
-        except Exception:
-            return items
+        # the song rows from there and keep everything else from the mixed
+        # page. The two pages are independent, so they are fetched together
+        # rather than one after the other.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            mixed_job = pool.submit(
+                lambda: self.ytm_local.search(query, limit=limit))
+            songs_job = pool.submit(
+                lambda: self.ytm_local.search(query, filter="songs", limit=limit))
+            try:
+                mixed = mixed_job.result()
+            except Exception:
+                mixed = []
+            try:
+                songs = songs_job.result()
+            except Exception:
+                songs = []
+
+        items = [n for n in (normalise(r) for r in mixed) if n]
         enriched = [n for n in (normalise(r) for r in songs) if n]
         if not enriched:
             return items
@@ -373,9 +402,15 @@ class Api:
     def search_sources(self, query: str, sources: list[str], limit: int = 15) -> dict[str, list[dict]]:
         """Search the non-YouTube sources. One dead source must not sink search."""
         from . import sources as source_mod
+        with ThreadPoolExecutor(max_workers=max(1, len(sources))) as pool:
+            jobs = {name: pool.submit(source_mod.search, name, query, limit)
+                    for name in sources}
         found = {}
-        for name in sources:
-            results = source_mod.search(name, query, limit)
+        for name, job in jobs.items():
+            try:
+                results = job.result()
+            except Exception:
+                continue
             if results:
                 found[name] = results
         return found
@@ -663,6 +698,13 @@ class Api:
 
     # ---------------------------------------------------------------- stream
 
+    def prefetch(self, track: dict) -> None:
+        """Resolve ahead of time so the next track starts without a wait."""
+        try:
+            self.stream(track)
+        except Exception:
+            pass
+
     def stream(self, track: dict | str, retry_on_403: bool = True) -> tuple[str, dict]:
         """Resolve a playable audio URL plus the headers it must be fetched with.
 
@@ -673,6 +715,12 @@ class Api:
         first byte, so on failure we wipe the cache once and retry - that is a
         real failure mode, not a hypothetical one.
         """
+        key = track if isinstance(track, str) else track.get("id")
+        if key:
+            hit = self._stream_cache.get(key)
+            if hit and hit[2] > time.time():
+                return hit[0], hit[1]
+
         if isinstance(track, str):
             target = f"https://music.youtube.com/watch?v={track}"
         else:
@@ -706,7 +754,14 @@ class Api:
                 shutil.rmtree(_YTDLP_CACHE, ignore_errors=True)
                 return self.stream(track, retry_on_403=False)
             raise
-        return info["url"], (info.get("http_headers") or {})
+        url, headers = info["url"], (info.get("http_headers") or {})
+        if key:
+            # YouTube states the expiry in the URL; anything else gets
+            # half an hour, well inside any sane lifetime.
+            match = re.search(r"[?&]expire=(\d+)", url)
+            expires = int(match.group(1)) - 60 if match else time.time() + 1800
+            self._stream_cache[key] = (url, headers, expires)
+        return url, headers
 
     @staticmethod
     def clear_stream_cache() -> None:

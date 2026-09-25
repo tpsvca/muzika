@@ -297,6 +297,16 @@ class Player(GObject.Object):
 
     # ---------------------------------------------------------------- internals
 
+    def _prefetch_next(self) -> None:
+        """Resolve the following track while this one plays, so skipping and
+        reaching the end are both instant instead of a yt-dlp round trip."""
+        nxt = self._cursor + 1
+        if not (0 <= nxt < len(self._order)):
+            return
+        track = self._queue[self._order[nxt]]
+        tasks.run_async(lambda: self._api.prefetch(track), lambda _r: None,
+                        lambda _e: None)
+
     def _load_current(self) -> None:
         track = self.current
         if track is None:
@@ -326,6 +336,7 @@ class Player(GObject.Object):
             self._bin.set_state(Gst.State.PLAYING)
             self.emit("state-changed")
             tasks.run_async(lambda: self._store.record_play(track))
+            self._prefetch_next()
 
         def failed(exc):
             if token != self._resolve_token:
