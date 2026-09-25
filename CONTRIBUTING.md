@@ -30,6 +30,15 @@ cd android && ./gradlew testDebugUnitTest
 They are the fastest way to find out whether a parser has gone stale. If you
 change anything in `sources/Innertube.kt`, run them.
 
+The desktop has its own tests, which need no network:
+
+```bash
+cd desktop && pip install -e '.[dev]' && pytest
+```
+
+They cover the sync merge rules and local-library identifiers — the two places
+where a mistake quietly corrupts a library on someone else's device.
+
 ## Sync changes
 
 `muzika-library.json` is read and written by both apps and by older versions of

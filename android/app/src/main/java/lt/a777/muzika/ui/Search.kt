@@ -56,6 +56,7 @@ fun SearchScreen(nav: Nav) {
     var submitted by remember { mutableStateOf("") }
     var results by remember { mutableStateOf(Results()) }
     var searching by remember { mutableStateOf(false) }
+    var offline by remember { mutableStateOf(false) }
     val coroutines = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = remember { FocusRequester() }
@@ -145,6 +146,13 @@ fun SearchScreen(nav: Nav) {
                 Icons.Rounded.Search, "Search everything",
                 "YouTube Music, SoundCloud and Bandcamp at once. No account needed."
             )
+            // An empty list and a dead connection look identical otherwise.
+            offline -> EmptyState(
+                Icons.Rounded.CloudOff, "No connection",
+                "Muzika could not reach the music services. Check your network "
+                    + "and try again.",
+                "Retry",
+            ) { run(submitted, scope) }
             scope == Scope.ALL || scope == Scope.SONGS ->
                 SongResults(results, scope == Scope.ALL, nav)
             else -> CardResults(results.cards, nav)

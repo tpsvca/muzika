@@ -14,8 +14,20 @@ import lt.a777.muzika.ui.MainActivity
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
 
+    companion object {
+        /**
+         * Whether the service is alive. Android refuses a foreground-service
+         * start from a backgrounded app, so asking for one we do not need is
+         * not harmless - it throws, and it spends the app's one allowance.
+         */
+        @Volatile
+        var running: Boolean = false
+            private set
+    }
+
     override fun onCreate() {
         super.onCreate()
+        running = true
         MuzikaPlayer.attach(this)
         val player = MuzikaPlayer.exo ?: return
 
@@ -39,6 +51,12 @@ class PlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
+    /** Come back if the system kills us while there is still a queue. */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        return START_STICKY
+    }
+
     /** Swiping the app away should not strand a silent service. */
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = session?.player
@@ -52,6 +70,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        running = false
         session?.run { release() }
         session = null
         super.onDestroy()

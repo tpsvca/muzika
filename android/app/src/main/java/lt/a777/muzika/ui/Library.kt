@@ -68,7 +68,7 @@ fun LibraryScreen(version: Int, nav: Nav) {
 
     // Saved catalogue items and items derived from your own songs, merged.
     // A saved one wins, so tapping it opens the real album or artist page.
-    fun albumEntries(): List<Entry> {
+    fun buildAlbumentries(): List<Entry> {
         val savedTitles = savedAlbums.map { it.title.lowercase() }.toSet()
         return savedAlbums.map { item ->
             Entry("s-${item.id}", item.title, item.subtitle, item.thumb, false) {
@@ -92,7 +92,7 @@ fun LibraryScreen(version: Int, nav: Nav) {
         }
     }
 
-    fun artistEntries(): List<Entry> {
+    fun buildArtistentries(): List<Entry> {
         val savedNames = savedArtists.map { it.title.lowercase() }.toSet()
         return savedArtists.map { item ->
             Entry("s-${item.id}", item.title, item.subtitle, item.thumb, true) {
@@ -117,7 +117,7 @@ fun LibraryScreen(version: Int, nav: Nav) {
         }
     }
 
-    fun playlistEntries(): List<Entry> =
+    fun buildPlaylistentries(): List<Entry> =
         playlists.map { playlist ->
             Entry("l-${playlist.id}", playlist.name, songCount(playlist.count),
                 playlist.thumb, false) { nav.push(Dest.LocalPlaylist(playlist)) }
@@ -127,11 +127,17 @@ fun LibraryScreen(version: Int, nav: Nav) {
             }
         }
 
+    // These walk the whole song list, and countFor() asks for two of them on
+    // every chip. Without remember they were rebuilt on each recomposition.
+    val albumList = remember(songs, savedAlbums, albums) { buildAlbumentries() }
+    val artistList = remember(songs, savedArtists, artists) { buildArtistentries() }
+    val playlistList = remember(playlists, savedPlaylists) { buildPlaylistentries() }
+
     fun countFor(entry: Shelf) = when (entry) {
-        Shelf.PLAYLISTS -> playlists.size + savedPlaylists.size
+        Shelf.PLAYLISTS -> playlistList.size
         Shelf.SONGS -> songs.size
-        Shelf.ARTISTS -> artistEntries().size
-        Shelf.ALBUMS -> albumEntries().size
+        Shelf.ARTISTS -> artistList.size
+        Shelf.ALBUMS -> albumList.size
         Shelf.MUSIC -> onDevice.size
         Shelf.LIKED -> liked.size
     }
@@ -165,21 +171,21 @@ fun LibraryScreen(version: Int, nav: Nav) {
 
         when (shelf) {
             Shelf.PLAYLISTS -> EntryGrid(
-                playlistEntries(),
+                playlistList,
                 Icons.Rounded.QueueMusic, "No playlists yet",
                 "Make one here, or sync the ones from your desktop.",
                 "New playlist", { newPlaylist = true },
             )
 
             Shelf.ARTISTS -> EntryGrid(
-                artistEntries(),
+                artistList,
                 Icons.Rounded.Person, "No artists yet",
                 "Artists appear once you have songs saved, and any you save from " +
                     "an artist page show up here too.",
             )
 
             Shelf.ALBUMS -> EntryGrid(
-                albumEntries(),
+                albumList,
                 Icons.Rounded.Album, "No albums yet",
                 "Save an album from its page, or from the desktop player, and it " +
                     "appears here.",

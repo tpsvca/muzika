@@ -29,6 +29,9 @@ dependencies = [
     "requests>=2.22",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
 [project.urls]
 Homepage = "https://github.com/tpsvca/muzika"
 Source = "https://github.com/tpsvca/muzika"

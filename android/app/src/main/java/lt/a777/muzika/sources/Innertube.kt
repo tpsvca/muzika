@@ -26,6 +26,11 @@ object Innertube {
     private const val UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
+    /** Set when the last catalogue call failed outright, so the UI can say so
+     *  instead of showing an empty list that looks like "no results". */
+    @Volatile var lastCallFailed: Boolean = false
+        private set
+
     const val SONG = "song"
     const val VIDEO = "video"
     const val ALBUM = "album"
@@ -126,8 +131,15 @@ object Innertube {
         val request = builder
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
-        NpeDownloader.client.newCall(request).execute().use { response ->
-            return JSONObject(response.body?.string() ?: "{}")
+        try {
+            NpeDownloader.client.newCall(request).execute().use { response ->
+                val parsed = JSONObject(response.body?.string() ?: "{}")
+                lastCallFailed = false
+                return parsed
+            }
+        } catch (e: java.io.IOException) {
+            lastCallFailed = true
+            throw e
         }
     }
 

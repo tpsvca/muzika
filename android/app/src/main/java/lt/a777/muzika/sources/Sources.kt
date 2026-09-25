@@ -190,6 +190,9 @@ object Sources {
         return url
     }
 
+    /** A stream we already hold, or null - never goes to the network. */
+    fun cachedUrl(track: Track): String? = cached(track.id)
+
     /** Resolve ahead of time, so the next track starts without a wait. */
     fun prefetch(track: Track) {
         if (cached(track.id) != null) return

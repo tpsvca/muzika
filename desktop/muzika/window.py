@@ -552,15 +552,59 @@ class MuzikaWindow(Adw.ApplicationWindow):
                 Gtk.ShortcutTrigger.parse_string(trigger),
                 Gtk.CallbackAction.new(lambda *_a, cb=callback: (cb(), True)[1])))
 
+        def add_typing_safe(trigger: str, callback) -> None:
+            """A bare key must never beat the cursor in a text box.
+
+            GTK does give the focused widget the key first, but a shortcut
+            that steals the space bar mid-search is bad enough to be worth
+            ruling out rather than relying on propagation order.
+            """
+            def guarded() -> None:
+                focus = self.get_focus()
+                if isinstance(focus, (Gtk.Text, Gtk.TextView)):
+                    return
+                callback()
+            add(trigger, guarded)
+
         add("<Control>comma", self.show_settings)
         add("<Control>f", lambda: self.activate_destination("search"))
         add("<Control>h", lambda: self.activate_destination("home"))
         add("<Control>l", lambda: self.activate_destination("library"))
-        add("space", self.player.toggle)
+        add_typing_safe("space", self.player.toggle)
         add("<Control>Right", self.player.next)
         add("<Control>Left", self.player.previous)
         add("<Control>s", lambda: setattr(self.player, "shuffle", not self.player.shuffle))
+        add("<Control>e", lambda: self.activate_destination("explore"))
+        add("<Control>r", self._shortcut_cycle_repeat)
+        add("<Control>d", self._shortcut_favourite)
+        add("<Control>p", self._shortcut_add_to_playlist)
+        add("<Control>n", lambda: self.sync_library())
+        add_typing_safe("plus", lambda: self._nudge_volume(0.05))
+        add_typing_safe("minus", lambda: self._nudge_volume(-0.05))
+        add("Escape", self.go_back)
         self.add_controller(controller)
+
+    def _shortcut_cycle_repeat(self) -> None:
+        from .player import REPEAT_ALL, REPEAT_NONE, REPEAT_ONE
+        order = [REPEAT_NONE, REPEAT_ALL, REPEAT_ONE]
+        self.player.repeat = order[(order.index(self.player.repeat) + 1) % len(order)]
+
+    def _shortcut_favourite(self) -> None:
+        track = self.player.current
+        if track is None:
+            return
+        state = self.store.toggle_favourite(track)
+        self.refresh_library()
+        self._schedule_export()
+        self.toast("Added to favourites" if state else "Removed from favourites")
+
+    def _shortcut_add_to_playlist(self) -> None:
+        track = self.player.current
+        if track is not None:
+            self.add_to_playlist([track])
+
+    def _nudge_volume(self, delta: float) -> None:
+        self.player.volume = min(1.0, max(0.0, self.player.volume + delta))
 
     # -------------------------------------------------------------- settings
 

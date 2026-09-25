@@ -2,6 +2,8 @@ package lt.a777.muzika.player
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +51,23 @@ object MuzikaPlayer {
     private var order: MutableList<Int> = mutableListOf()
     private var cursor: Int = -1
     private var resolveToken = 0
+
+    /**
+     * Which [order] index is already lined up inside ExoPlayer as the item
+     * after the current one, or null when nothing is queued.
+     *
+     * Keeping the next track in ExoPlayer's own playlist is not an
+     * optimisation, it is what keeps playback alive in the background. If the
+     * player is allowed to reach STATE_ENDED, Media3 immediately drops the
+     * service out of the foreground, and Android then refuses to let a
+     * backgrounded app start a foreground service again
+     * (ForegroundServiceStartNotAllowedException, "BFGS denied"). Playback
+     * carries on unprotected until the process is reaped - the "music stopped
+     * and never came back" bug. Handing the next item to ExoPlayer before the
+     * current one ends means the player goes READY -> BUFFERING -> READY and
+     * never sits in ENDED at all.
+     */
+    private var queuedNext: Int? = null
 
     /** Guards the one automatic retry of a failed track. */
     private var retriedCurrent = false
@@ -121,6 +140,20 @@ object MuzikaPlayer {
                     // Buffering is shown, so a stalled stream never looks like
                     // it is happily playing.
                     loading = state == Player.STATE_BUFFERING
+                }
+
+                override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
+                    if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) return
+                    val advanced = queuedNext ?: return
+                    queuedNext = null
+                    cursor = advanced
+                    publishQueue()
+                    // The finished track is still sitting at index 0.
+                    if (player.currentMediaItemIndex == 1) player.removeMediaItem(0)
+                    order.getOrNull(cursor)?.let { queue.getOrNull(it) }?.let { track ->
+                        scope.launch(Dispatchers.IO) { Store.recordPlay(track) }
+                    }
+                    prefetchNext()
                 }
 
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -199,13 +232,79 @@ object MuzikaPlayer {
     }
 
     /**
+     * Make sure the playback service is running and allowed to go foreground.
+     *
+     * It used to be started only from MainActivity.onCreate. Resuming the app
+     * does not call onCreate, so once Android reaped the service it never came
+     * back: audio kept playing from the app process with no foreground service
+     * protecting it, and the process was killed sooner or later with no way to
+     * recover. Starting it whenever playback begins is what keeps the process
+     * alive for as long as there is sound.
+     *
+     * It can only ever start the service, never promote one that is already
+     * running: from the background Android denies that outright. Staying in
+     * the foreground once there is what [queuedNext] is for.
+     */
+    private fun ensureService() {
+        if (!::context.isInitialized || PlaybackService.running) return
+        runCatching {
+            ContextCompat.startForegroundService(
+                context, Intent(context, PlaybackService::class.java))
+        }
+    }
+
+    /**
      * Work out the next track's stream while this one plays, so pressing skip
      * - or simply reaching the end - does not mean waiting a second or two for
      * an extractor.
      */
     private fun prefetchNext() {
-        val next = order.getOrNull(cursor + 1)?.let { queue.getOrNull(it) } ?: return
-        scope.launch(Dispatchers.IO) { Sources.prefetch(next) }
+        // Two ahead, not one: skipping twice in a row is common, and the
+        // second skip used to wait for an extractor all over again.
+        val upcoming = (1..2).mapNotNull { step ->
+            order.getOrNull(cursor + step)?.let { queue.getOrNull(it) }
+        }
+        val follows = followingIndex()
+        if (upcoming.isEmpty() && follows == null) return
+        scope.launch {
+            withContext(Dispatchers.IO) { upcoming.forEach { Sources.prefetch(it) } }
+            lineUpNext()
+        }
+    }
+
+    /** The [order] index that should play after the current one, if any. */
+    private fun followingIndex(): Int? = when {
+        repeat == REPEAT_ONE -> null
+        cursor + 1 < order.size -> cursor + 1
+        repeat == REPEAT_ALL && order.isNotEmpty() -> 0
+        else -> null
+    }
+
+    /**
+     * Hand the next track to ExoPlayer so it can cross over on its own.
+     *
+     * Only ever uses a stream we already hold: going to the network here would
+     * put the wait back where the gap used to be. If nothing is cached yet the
+     * STATE_ENDED fallback in the listener still moves things along.
+     */
+    private fun lineUpNext() {
+        val player = exo ?: return
+        if (queuedNext != null || player.mediaItemCount != 1) return
+        val index = followingIndex() ?: return
+        val track = order.getOrNull(index)?.let { queue.getOrNull(it) } ?: return
+        val url = Sources.cachedUrl(track) ?: return
+        player.addMediaItem(mediaItem(track, url))
+        queuedNext = index
+    }
+
+    /** Forget anything lined up - the queue underneath it has moved. */
+    private fun dropQueuedNext() {
+        queuedNext = null
+        exo?.let { player ->
+            while (player.mediaItemCount > player.currentMediaItemIndex + 1) {
+                player.removeMediaItem(player.mediaItemCount - 1)
+            }
+        }
     }
 
     /** One place that builds the media item, so recovery cannot drift from it. */
@@ -241,6 +340,7 @@ object MuzikaPlayer {
                 next(user = false)
                 return@launch
             }
+            queuedNext = null
             exo?.setMediaItem(mediaItem(track, url), resumeAt)
             exo?.prepare()
             exo?.play()
@@ -280,7 +380,7 @@ object MuzikaPlayer {
         if (shuffle) fresh.shuffle()
         order.addAll(fresh)
         publishQueue()
-        if (cursor < 0) { cursor = 0; loadCurrent() }
+        if (cursor < 0) { cursor = 0; loadCurrent() } else prefetchNext()
     }
 
     fun playNext(track: Track) {
@@ -295,6 +395,7 @@ object MuzikaPlayer {
 
     fun removeAt(position: Int) {
         if (position !in order.indices) return
+        dropQueuedNext()
         order.removeAt(position)
         if (position < cursor) cursor--
         else if (position == cursor) { cursor--; next() }
@@ -302,7 +403,7 @@ object MuzikaPlayer {
     }
 
     fun clear() {
-        exo?.stop(); exo?.clearMediaItems()
+        exo?.stop(); exo?.clearMediaItems(); queuedNext = null
         queue = emptyList(); order = mutableListOf(); cursor = -1
         current = null; isPlaying = false; source = null
         publishQueue()
@@ -323,8 +424,11 @@ object MuzikaPlayer {
 
     // -------------------------------------------------------------- transport
 
-    fun toggle() { if (isPlaying) exo?.pause() else exo?.play() }
-    fun play() { exo?.play() }
+    fun toggle() {
+        if (isPlaying) exo?.pause() else { ensureService(); exo?.play() }
+    }
+
+    fun play() { ensureService(); exo?.play() }
     fun pause() { exo?.pause() }
 
     fun next(user: Boolean = true) {
@@ -347,6 +451,7 @@ object MuzikaPlayer {
     /** Named to avoid clashing with the JVM setter of the `shuffle` property. */
     fun applyShuffle(enabled: Boolean) {
         if (enabled == shuffle) return
+        dropQueuedNext()
         shuffle = enabled
         val currentIndex = order.getOrNull(cursor)
         order = if (enabled) {
@@ -360,7 +465,15 @@ object MuzikaPlayer {
         publishQueue()
     }
 
-    fun cycleRepeat() { repeat = (repeat + 1) % 3 }
+    fun cycleRepeat() {
+        repeat = (repeat + 1) % 3
+        // Repeat-one is handed to ExoPlayer rather than done by hand: looping
+        // through STATE_ENDED would drop the service out of the foreground on
+        // every single pass. See [queuedNext].
+        exo?.repeatMode =
+            if (repeat == REPEAT_ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        if (repeat == REPEAT_ONE) dropQueuedNext() else prefetchNext()
+    }
 
     // --------------------------------------------------------------- loading
 
@@ -380,6 +493,8 @@ object MuzikaPlayer {
                 next(user = false)
                 return@launch
             }
+            ensureService()
+            queuedNext = null
             exo?.setMediaItem(mediaItem(track, url))
             exo?.prepare()
             exo?.play()

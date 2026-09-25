@@ -1,3 +1,44 @@
+## 2026-09-25 — Background playback: the real cause, and the fix
+
+### Fixed
+- **What**: music played for a few minutes in the background, then stopped and never came back
+- **Why**: at the end of every track ExoPlayer reached `STATE_ENDED` while the next stream was being resolved. Media3 drops the service out of the foreground the instant that happens, and Android then **refuses** to let a backgrounded app put it back:
+
+  ```
+  E/ActivityManager: Background started FGS: Disallowed [uidState: SVC; BFGS denied: true]
+  android.app.ForegroundServiceStartNotAllowedException: startForegroundService() not allowed
+      at androidx.media3.session.MediaNotificationManager.startForeground(MediaNotificationManager.java:363)
+  ```
+
+  From the first track change onwards playback ran with no foreground service protecting it — oom adj 700, the service record gone entirely — until the system reclaimed the process.
+- **How**: the next track is now handed to ExoPlayer's own playlist while the current one is still playing, using only a stream that is already cached. The player crosses over internally, going READY → BUFFERING → READY, and never sits in `STATE_ENDED` at all. Repeat-one is handed to ExoPlayer's `REPEAT_MODE_ONE` for the same reason: looping by hand went through `STATE_ENDED` on every pass.
+- `ensureService()` no longer asks for a foreground start when the service is already running. It could never have succeeded from the background, and each denied attempt spends the app's allowance.
+
+An earlier fix in this series — starting the service whenever playback begins, rather than only in `MainActivity.onCreate` — was necessary but not sufficient. It is kept; this is the other half.
+
+### Measured — background playback
+
+11 minutes backgrounded, across two track changes:
+
+| | Before | After |
+|---|---|---|
+| Foreground service after first track change | dropped, then **gone** | **held for the full run** |
+| Process oom adj | 700 (reclaimable) | **200 (perceptible)** |
+| `startForegroundService` denials | one per track change | **0** |
+| Buffering events across 2 track changes | — | **2** |
+
+### Added
+- **Offline state in search** — a failed lookup showed an empty screen indistinguishable from "no results". It now says so, and offers Retry.
+- **Desktop keyboard shortcuts** — repeat, favourite, add-to-playlist, sync now, volume, and back. `space`, `plus` and `minus` are ignored while a text box has focus, so they cannot steal a keystroke mid-search.
+- **Tests** — 8 desktop tests covering the sync merge rules and local-library identifiers, and 9 Android tests covering library grouping and store/sync behaviour. Android total is now 18 including the live API probes.
+
+### Changed
+- **Prefetch widened** from one track ahead to two: skipping twice in a row no longer waits on an extractor for the second skip.
+- **Library lists memoised** — album, artist and playlist groupings were rebuilt on every recomposition.
+
+### Fixed — measurement
+`SpeedProbe` was still looking for `VISITOR_DATA` when the page spells it `visitorData` — the exact bug the app itself had fixed some time ago. The probe had been reporting a false negative ever since.
+
 ## 2026-09-25 — SoundCloud on the desktop: 2.9s to 0.3s
 
 ### Fixed

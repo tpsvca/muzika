@@ -28,8 +28,10 @@ class SpeedProbe {
             NpeDownloader.client.newCall(req).execute().use { r ->
                 val html = r.body?.string() ?: ""
                 bytes = html.length
-                val hit = Regex("\"VISITOR_DATA\"\\s*:\\s*\"([^\"]+)\"").find(html)
-                println("  homepage: $bytes chars, VISITOR_DATA matched = ${hit != null}")
+                // The page spells it `visitorData`; probing for `VISITOR_DATA`
+                // reported a false negative long after the app itself was fixed.
+                val hit = Regex("\"visitorData\"\\s*:\\s*\"([^\"]+)\"").find(html)
+                println("  homepage: $bytes chars, visitorData matched = ${hit != null}")
             }
         }
         println("  homepage fetch: $pageMs ms")

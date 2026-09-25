@@ -61,7 +61,13 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
-    testOptions { unitTests { isReturnDefaultValues = true } }
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+            // Robolectric needs the real resources to stand up a Context.
+            isIncludeAndroidResources = true
+        }
+    }
     packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }
 
@@ -87,5 +93,7 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.3")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
     testImplementation("org.json:json:20240303")
 }
