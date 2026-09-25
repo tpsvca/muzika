@@ -126,17 +126,24 @@ Then:
 ```bash
 git clone https://github.com/tpsvca/muzika.git
 cd muzika/desktop
-./install.sh          # into ~/.local: the muzika command, menu entry and icon
+./install.sh
 ```
 
+That creates a virtualenv under `~/.local/share/muzika/venv`, links the
+`muzika` command into `~/.local/bin`, and adds the menu entry and icon.
+Nothing is installed system-wide and no system Python package is touched —
+which is also why it works on Debian and Ubuntu, where `pip install --user`
+is refused outright ([PEP 668](https://peps.python.org/pep-0668/)).
+
 Run it from the applications menu, or `muzika`. To run from the checkout
-without installing anything: `./bin/muzika`.
+without installing anything: `./bin/muzika`. To remove it: `./uninstall.sh`
+(your playlists and settings are kept).
 
 Extraction only keeps working because `yt-dlp` and `ytmusicapi` keep up with
 the services. Update them now and then:
 
 ```bash
-pip install --user --upgrade yt-dlp ytmusicapi
+~/.local/share/muzika/venv/bin/pip install --upgrade yt-dlp ytmusicapi
 ```
 
 ---
