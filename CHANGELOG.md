@@ -1,3 +1,24 @@
+## 2026-09-25 — Published to GitHub, v1.0.0 released
+
+### Added
+- **What**: the repo is live at `github.com/tpsvca/muzika`, **private** for now
+- **What**: `v1.0.0` tagged, and CI published a **signed** `muzika-1.0.0.apk` (15 MB) to the release
+
+### Fixed (the CI took two attempts)
+- **What**: the release workflow failed instantly on every push, and the run was attributed to the workflow file rather than a job
+- **Why**: a 0-second failure is workflow *validation*, not a build error. Two contexts were used where Actions does not allow them — `secrets` in a step-level `if`, then `runner` in job-level `env`. `secrets` is resolved once into a job-level env string, and `MUZIKA_KEYSTORE` is now exported from the restore step through `GITHUB_ENV`, so it is set only when a keystore was really restored and a fork with no secrets still falls through to the unsigned build.
+- **What**: the release job now runs `apksigner verify` on its own output and warns if the APK came out unsigned, rather than leaving it to be discovered after publishing.
+
+### Verified
+- All three workflows registered `active`; `release.yml` correctly does **not** fire on a branch push
+- The `v1.0.0` run is green at every step
+- The published asset downloads and verifies: `CN=Muzika`, SHA-256 `a2ca9077…`, identical to the local keystore
+- `aapt2` on the downloaded APK: `lt.a777.muzika`, versionName `1.0.0`, minSdk 26
+
+### Still to do
+- The repo is private; flipping it to public is a one-click change in Settings
+- The Pixel still runs the **debug-signed** build. Installing the release APK over it needs an uninstall first, because Android refuses an APK signed by a different key — the library would come back from the sync folder, but it is a deliberate step, not an automatic one.
+
 ## 2026-09-25 — Packaged both apps for GitHub
 
 ### Changed
