@@ -17,15 +17,39 @@ echo "Checking what the system provides…"
 # verifies every typelib the code imports AND the libadwaita widgets the UI
 # uses - not just that `import gi` works, which used to pass on systems where
 # the app then could not start.
-if ! PYTHONPATH="$here" python3 -m muzika.preflight; then
+if ! PYTHONPATH="$here" python3 -m muzika.preflight --install; then
     exit 1
 fi
 
-echo "Creating the virtualenv at $venv…"
-python3 -m venv --system-site-packages --upgrade-deps "$venv" >/dev/null
+# Never discard a step's output. Debian's venv prints its "you need to install
+# python3-venv" advice to *stdout* and then exits 1, so sending stdout to
+# /dev/null turned the single most common install failure into a script that
+# stopped with no message at all.
+run_step() {
+    local label="$1"; shift
+    local log; log="$(mktemp)"
+    echo "$label"
+    if ! "$@" >"$log" 2>&1; then
+        {
+            echo
+            echo "That step failed. What it printed:"
+            echo
+            sed 's/^/    /' "$log"
+        } >&2
+        rm -f "$log"
+        exit 1
+    fi
+    rm -f "$log"
+}
 
-echo "Installing Muzika and its Python dependencies…"
-"$venv/bin/pip" install --quiet --upgrade "$here"
+# --upgrade-deps is deliberately absent: it makes venv reach out to the network
+# to upgrade pip, which is one more thing to fail on a fresh machine for no
+# benefit here.
+run_step "Creating the virtualenv at $venv…" \
+    python3 -m venv --system-site-packages "$venv"
+
+run_step "Installing Muzika and its Python dependencies…" \
+    "$venv/bin/pip" install --upgrade "$here"
 
 mkdir -p "$bindir"
 ln -sf "$venv/bin/muzika" "$bindir/muzika"

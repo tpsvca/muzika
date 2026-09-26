@@ -53,7 +53,7 @@ INSTALL_COMMANDS: dict[str, str] = {
         "gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free"
     ),
     "debian": (
-        "sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 "
+        "sudo apt install python3-gi python3-gi-cairo python3-venv gir1.2-gtk-4.0 gir1.2-adw-1 "
         "gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 "
         "gstreamer1.0-plugins-good gstreamer1.0-plugins-bad"
     ),
@@ -95,13 +95,40 @@ def _distro_key() -> str:
     return "debian"
 
 
-def problems() -> list[str]:
-    """Everything wrong with this system, in the order worth fixing it."""
+def _venv_problem() -> str | None:
+    """Whether python3 -m venv could actually build an environment.
+
+    Debian and Ubuntu ship the venv module but split ``ensurepip`` into
+    ``python3-venv``, which nothing else pulls in. Without it venv fails, and
+    it explains itself on *stdout* before exiting - so an installer that
+    redirects stdout loses the one message that would have helped.
+    """
+    import importlib.util
+    if importlib.util.find_spec("venv") is None:
+        return "The Python venv module is missing (python3-venv)."
+    if importlib.util.find_spec("ensurepip") is None:
+        return ("python3-venv is missing - the venv module cannot create an "
+                "environment without it.")
+    return None
+
+
+def problems(for_install: bool = False) -> list[str]:
+    """Everything wrong with this system, in the order worth fixing it.
+
+    ``for_install`` adds the checks that only matter while installing; the
+    running app has its environment already.
+    """
     found: list[str] = []
+    if for_install:
+        venv_problem = _venv_problem()
+        if venv_problem:
+            found.append(venv_problem)
     try:
         import gi
     except ImportError:
-        return ["The Python GObject bindings are missing (python3-gi / python3-gobject)."]
+        found.append(
+            "The Python GObject bindings are missing (python3-gi / python3-gobject).")
+        return found
 
     adw = None
     for namespace, version in REQUIRED_TYPELIBS:
@@ -127,9 +154,9 @@ def problems() -> list[str]:
     return found
 
 
-def report() -> str:
+def report(for_install: bool = False) -> str:
     """The whole complaint, ready to print, or an empty string when fine."""
-    found = problems()
+    found = problems(for_install)
     if not found:
         return ""
     lines = ["Muzika cannot run on this system yet:", ""]
@@ -140,7 +167,9 @@ def report() -> str:
 
 
 def main() -> int:
-    complaint = report()
+    # install.sh passes --install; the app's own startup check does not, because
+    # by then the environment exists and venv is no longer its problem.
+    complaint = report(for_install="--install" in sys.argv)
     if complaint:
         print(complaint, file=sys.stderr)
         return 1

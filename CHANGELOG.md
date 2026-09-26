@@ -1,3 +1,15 @@
+## 2026-09-26 — install.sh failed silently on a fresh Debian
+
+### Fixed
+- **What**: on a fresh Debian 13 the installer printed `Creating the virtualenv…` and then stopped, with no error and no installed app
+- **Why**: `python3-venv` is a separate package on Debian and Ubuntu that nothing else pulls in. Without it `python3 -m venv` cannot create an environment — and Debian's patched `venv/__init__.py` prints its *"you need to install the python3-venv package"* advice with a plain `print()`, i.e. to **stdout**, before exiting 1. The installer sent that step's stdout to `/dev/null`, so `set -e` killed the script and the one message that would have explained it was thrown away.
+- **How**: no step discards its output any more. Each runs through a helper that captures stdout and stderr together and prints them if the step fails, so a failure now names itself. Verified by forcing one: the installer reports `That step failed. What it printed: Error: Unable to create directory …` and exits 1, where it used to exit silently.
+- `--upgrade-deps` was dropped from the venv call. It made venv reach out to the network to upgrade pip, which is one more thing to fail on a fresh machine for no benefit here.
+
+### Added
+- `python3-venv` to the Debian/Ubuntu package list, and a note explaining what Debian splits out and why each piece is needed.
+- The preflight now checks that `venv` and `ensurepip` are actually usable before the installer tries, so this is caught up front with the package named rather than discovered halfway through.
+
 ## 2026-09-26 — The Linux install instructions were wrong
 
 ### Fixed

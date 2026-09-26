@@ -113,7 +113,7 @@ sudo dnf install python3-gobject gtk4 libadwaita gstreamer1 gstreamer1-plugins-b
 <summary><b>Debian / Ubuntu</b></summary>
 
 ```bash
-sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+sudo apt install python3-gi python3-gi-cairo python3-venv gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
 ```
 </details>
 
@@ -133,9 +133,14 @@ sudo zypper install python3-gobject python3-gobject-Gdk typelib-1_0-Gtk-4_0 type
 ```
 </details>
 
-> Each list includes the GObject **bindings** for GStreamer, not just its
-> plugins. On Debian and Ubuntu those are separate `gir1.2-*` packages that
-> nothing else pulls in, and without them the app cannot start.
+> Debian and Ubuntu split things other distributions ship together, and
+> nothing else pulls the pieces in:
+>
+> - `gir1.2-gstreamer-1.0` / `gir1.2-gst-plugins-base-1.0` are GStreamer's
+>   GObject **bindings** — the plugin packages alone are not enough and the app
+>   cannot start without them.
+> - `python3-venv` is what lets `python3 -m venv` build an environment. Without
+>   it `install.sh` cannot create the virtualenv.
 
 Then:
 
