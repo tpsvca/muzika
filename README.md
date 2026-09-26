@@ -92,6 +92,29 @@ and open it. Android 8.0 (API 26) or newer.
 
 ### Linux
 
+#### One command
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tpsvca/muzika/main/desktop/bootstrap.sh | bash
+```
+
+It works out your distribution, **shows you the package command and waits for
+you to agree** before running anything, then clones the repo and installs.
+Tested on Fedora, Debian, Ubuntu, Arch and openSUSE.
+
+Piping a script from the internet into a shell deserves a second of thought,
+so read it first if you would rather — it is 120 lines:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tpsvca/muzika/main/desktop/bootstrap.sh -o muzika-bootstrap.sh
+less muzika-bootstrap.sh && bash muzika-bootstrap.sh
+```
+
+`MUZIKA_SRC=/path` clones somewhere other than `~/muzika`, and `MUZIKA_YES=1`
+skips the confirmation for an unattended install.
+
+#### Or step by step
+
 GTK4, libadwaita and GStreamer come from your distribution; the rest is a
 normal Python install.
 

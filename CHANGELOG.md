@@ -1,3 +1,34 @@
+## 2026-09-26 — One command to install, verified on five distributions
+
+### Added
+- **`desktop/bootstrap.sh`** — takes a bare machine to a working Muzika in one command:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/tpsvca/muzika/main/desktop/bootstrap.sh | bash
+  ```
+
+  It works out the distribution, **prints the package command and waits for you to agree** before running anything, then clones and hands over to `install.sh`. It reads the confirmation from `/dev/tty` rather than stdin, because under `curl | bash` stdin is the script itself. `MUZIKA_SRC` chooses where to clone, `MUZIKA_YES=1` skips the prompt. With no terminal and no `MUZIKA_YES` it refuses rather than assuming consent.
+- **openSUSE** joins Fedora, Debian/Ubuntu and Arch as a documented target.
+
+### Fixed
+- Package lists are now **verified rather than asserted**. Each was installed in a clean container and the app's own preflight run against it:
+
+  | | result |
+  |---|---|
+  | Arch | packages install, preflight passes |
+  | Fedora 42 | packages install, preflight passes |
+  | Debian 13 (trixie) | packages install, preflight passes |
+  | Ubuntu 25.10 | packages install, preflight passes |
+  | openSUSE Tumbleweed | packages install, preflight passes |
+
+  The one-liner itself was then run end to end on Debian 13 and Fedora 42: clone, install, `muzika` on the path, preflight clean.
+
+### Changed
+- Arch's command is `pacman -Syu`, not `-S`. A partial upgrade is the wrong thing to recommend on a rolling release, and `-S` alone hits the same stale-index 404 that Debian does.
+
+### Tests
+`tests/test_install_docs.py` — 16 tests holding the three copies of the package list together. `bootstrap.sh` must carry its own copy because it runs before the repo exists, `preflight.py` has the authoritative one and the README shows them to people; a fix applied to one and forgotten in the others is exactly how somebody ends up following instructions that cannot work. The tests also pin the specific lessons from this week: Debian refreshes its index first, Arch uses `-Syu`, `python3-venv` is present, and every list carries GStreamer's GObject bindings and not just its plugins. Desktop suite: 42 tests.
+
 ## 2026-09-26 — README: what to do when apt reports a 404
 
 ### Added
