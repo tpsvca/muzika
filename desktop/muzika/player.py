@@ -67,6 +67,8 @@ class Player(GObject.Object):
         self._repeat = REPEAT_NONE
         self._loading = False
         self._resolve_token = 0
+        # Which track has already used its one 403 retry.
+        self._retried_track: str | None = None
         # What the user asked for. Querying the pipeline with a zero timeout
         # reports the state it has actually reached, and PLAYING is reached
         # asynchronously - so right after set_state() it still says PAUSED and
@@ -388,8 +390,25 @@ class Player(GObject.Object):
     def _on_bus_error(self, _bus, message) -> None:
         error, debug = message.parse_error()
         log.warning("gstreamer error: %s (%s)", error.message, debug)
-        self._intended_playing = False
         self._bin.set_state(Gst.State.NULL)
+
+        # "Forbidden" is YouTube rejecting a stream URL that extracted fine and
+        # then went stale - a different address, an expired token, or a player
+        # cache yt-dlp needs to rebuild. The URL is cached, so simply pressing
+        # play again replays the same dead one. Throw it away and resolve once
+        # more before giving up; one retry per track, so a genuinely dead
+        # track cannot loop.
+        track = self.current
+        stale = "forbidden" in f"{error.message} {debug}".lower() or "403" in f"{debug}"
+        if stale and track is not None and self._retried_track != track.get("id"):
+            self._retried_track = track.get("id")
+            log.info("stream was rejected; re-resolving %s", track.get("title", ""))
+            self._api.forget_stream(track.get("id"))
+            self._api.clear_stream_cache()
+            self._load_current()
+            return
+
+        self._intended_playing = False
         self.emit("playback-error", error.message)
         self.emit("state-changed")
 
@@ -403,5 +422,10 @@ class Player(GObject.Object):
     def _tick(self) -> bool:
         if self.current is not None:
             position, duration = self.position_duration()
+            # A few seconds of real playback means the stream was fine, so the
+            # track earns its 403 retry back. Without this a song that goes
+            # stale twice in one session refuses the second recovery.
+            if position > 3 * Gst.SECOND and self._retried_track is not None:
+                self._retried_track = None
             self.emit("position-changed", position, duration)
         return True

@@ -940,6 +940,16 @@ class Api:
             self._stream_cache[key] = (url, headers, expires)
         return url, headers
 
+    def forget_stream(self, key: str | None) -> None:
+        """Drop one cached URL, after it turned out to be dead.
+
+        A URL that 403s is still a URL: without this the cache hands the same
+        dead one back on every retry until it expires, and the song simply
+        refuses to play for the next half hour.
+        """
+        if key:
+            self._stream_cache.pop(key, None)
+
     @staticmethod
     def clear_stream_cache() -> None:
         shutil.rmtree(_YTDLP_CACHE, ignore_errors=True)

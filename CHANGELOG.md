@@ -1,3 +1,13 @@
+## 2026-09-26 — "Forbidden" no longer ends the song
+
+### Fixed
+- **What**: playback occasionally stopped with a **Forbidden** toast and would not start again
+- **Why**: YouTube hands back stream URLs that extract fine and then refuse the first byte — a stale player cache, an expired token, a different address. `stream()` already retried, but only when *extraction* raised; a 403 arrives later, from GStreamer, when the URL is actually fetched. The bus error handler simply gave up. Worse, the dead URL stayed in the stream cache, so pressing play again replayed the same dead address until it expired — up to half an hour of a song refusing to play.
+- **How**: a Forbidden on the bus now drops that URL from the cache, clears yt-dlp's player cache and resolves once more before giving up. One retry per track, so a genuinely dead track cannot loop, and the retry is earned back after a few seconds of real playback so a song going stale twice in one session can still recover the second time.
+
+### Tests
+2 desktop tests on the cache invalidation — that only the rejected URL is dropped, and that forgetting an unknown key is harmless. Desktop 57.
+
 ## 2026-09-26 — Lyrics: no longer answers with somebody else's song
 
 ### Fixed

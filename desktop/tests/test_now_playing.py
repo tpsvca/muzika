@@ -202,3 +202,31 @@ def test_the_cache_does_not_grow_without_bound():
     for index in range(_LYRICS_CACHE_MAX + 20):
         api.lyrics(f"song-{index}", TRACK)
     assert len(api._real._lyrics_cache) == _LYRICS_CACHE_MAX
+
+
+# --------------------------------------------- a dead stream URL is dropped
+
+def test_a_rejected_stream_url_is_dropped_from_the_cache():
+    """YouTube hands back URLs that extract fine and then 403 on first byte.
+
+    The URL is cached, so without dropping it the player replays the same
+    dead address on every retry until it expires - which is the song simply
+    refusing to play for the next half hour.
+    """
+    import time
+    from muzika.api import Api
+    api = Api.__new__(Api)
+    api._stream_cache = {"vid1": ("https://dead", {}, time.time() + 900),
+                         "vid2": ("https://fine", {}, time.time() + 900)}
+    api.forget_stream("vid1")
+    assert "vid1" not in api._stream_cache
+    assert "vid2" in api._stream_cache, "only the rejected one should go"
+
+
+def test_forgetting_an_unknown_or_missing_key_is_harmless():
+    from muzika.api import Api
+    api = Api.__new__(Api)
+    api._stream_cache = {}
+    api.forget_stream(None)
+    api.forget_stream("never-seen")
+    assert api._stream_cache == {}
