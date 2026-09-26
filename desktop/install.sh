@@ -12,20 +12,12 @@ here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 venv="$HOME/.local/share/muzika/venv"
 bindir="$HOME/.local/bin"
 
-echo "Checking the system GTK4 bindings…"
-if ! python3 -c "import gi; gi.require_version('Gtk','4.0'); gi.require_version('Adw','1')" 2>/dev/null; then
-    cat >&2 <<'MSG'
-GTK4 and libadwaita bindings for Python were not found.
-
-  Fedora  sudo dnf install python3-gobject gtk4 libadwaita \
-              gstreamer1-plugins-good gstreamer1-plugins-bad-free
-  Debian  sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 \
-              gir1.2-adw-1 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
-  Arch    sudo pacman -S python-gobject gtk4 libadwaita \
-              gst-plugins-good gst-plugins-bad
-
-Install those and run this again.
-MSG
+echo "Checking what the system provides…"
+# The real check lives in muzika/preflight.py so the app can run it too. It
+# verifies every typelib the code imports AND the libadwaita widgets the UI
+# uses - not just that `import gi` works, which used to pass on systems where
+# the app then could not start.
+if ! PYTHONPATH="$here" python3 -m muzika.preflight; then
     exit 1
 fi
 

@@ -95,12 +95,17 @@ and open it. Android 8.0 (API 26) or newer.
 GTK4, libadwaita and GStreamer come from your distribution; the rest is a
 normal Python install.
 
+**Muzika needs libadwaita 1.7 or newer.** That means **Fedora 42+**,
+**Debian 13 (trixie)+**, **Ubuntu 25.04+**, or a rolling release such as Arch.
+Older releases — Debian 12, Ubuntu 22.04 and 24.04 LTS, Fedora 41 — ship
+libadwaita 1.5 or earlier and the app will not start on them. `install.sh`
+checks this and says so rather than letting you find out later.
+
 <details open>
 <summary><b>Fedora</b></summary>
 
 ```bash
-sudo dnf install python3-gobject gtk4 libadwaita \
-    gstreamer1-plugins-good gstreamer1-plugins-bad-free
+sudo dnf install python3-gobject gtk4 libadwaita gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free
 ```
 </details>
 
@@ -108,8 +113,7 @@ sudo dnf install python3-gobject gtk4 libadwaita \
 <summary><b>Debian / Ubuntu</b></summary>
 
 ```bash
-sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 \
-    gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
 ```
 </details>
 
@@ -117,9 +121,21 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 \
 <summary><b>Arch</b></summary>
 
 ```bash
-sudo pacman -S python-gobject gtk4 libadwaita gst-plugins-good gst-plugins-bad
+sudo pacman -S python-gobject gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
 ```
 </details>
+
+<details>
+<summary><b>openSUSE</b></summary>
+
+```bash
+sudo zypper install python3-gobject python3-gobject-Gdk typelib-1_0-Gtk-4_0 typelib-1_0-Adw-1 typelib-1_0-Gst-1_0 typelib-1_0-GstPbutils-1_0 gstreamer-plugins-good gstreamer-plugins-bad
+```
+</details>
+
+> Each list includes the GObject **bindings** for GStreamer, not just its
+> plugins. On Debian and Ubuntu those are separate `gir1.2-*` packages that
+> nothing else pulls in, and without them the app cannot start.
 
 Then:
 
@@ -139,11 +155,32 @@ Run it from the applications menu, or `muzika`. To run from the checkout
 without installing anything: `./bin/muzika`. To remove it: `./uninstall.sh`
 (your playlists and settings are kept).
 
-Extraction only keeps working because `yt-dlp` and `ytmusicapi` keep up with
-the services. Update them now and then:
+### Updating
+
+Pull and re-run the installer. It reuses the same virtualenv, so this is also
+how you move between versions:
+
+```bash
+cd muzika && git pull && cd desktop && ./install.sh
+```
+
+Your playlists, settings and listening history live in
+`~/.local/share/muzika/` and are untouched by an update.
+
+Separately, extraction only keeps working because `yt-dlp` and `ytmusicapi`
+keep up with the services. Those move faster than Muzika does, so update them
+whenever a search or a track stops working:
 
 ```bash
 ~/.local/share/muzika/venv/bin/pip install --upgrade yt-dlp ytmusicapi
+```
+
+### If it will not start
+
+Ask the app what is missing — it names the packages for your distribution:
+
+```bash
+~/.local/share/muzika/venv/bin/python -m muzika.preflight
 ```
 
 ---

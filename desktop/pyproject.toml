@@ -38,7 +38,8 @@ Source = "https://github.com/tpsvca/muzika"
 Issues = "https://github.com/tpsvca/muzika/issues"
 
 [project.scripts]
-muzika = "muzika.app:main"
+# The launcher checks the system before anything imports Gtk.
+muzika = "muzika.launcher:main"
 
 [tool.setuptools.packages.find]
 include = ["muzika*"]

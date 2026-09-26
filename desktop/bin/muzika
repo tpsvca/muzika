@@ -3,4 +3,4 @@
 # `pip install .` gives you a `muzika` command instead.
 here="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
-exec python3 -m muzika.app "$@"
+exec python3 -m muzika.launcher "$@"

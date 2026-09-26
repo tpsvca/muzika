@@ -1,3 +1,23 @@
+## 2026-09-26 — The Linux install instructions were wrong
+
+### Fixed
+- **What**: following the README on a fresh Debian installed cleanly and then the app would not start
+- **Why**: the app calls `require_version` for **Gst** and **GstPbutils**, whose typelibs live in `gir1.2-gstreamer-1.0` and `gir1.2-gst-plugins-base-1.0`. Neither was in the package list, and nothing else pulls them in — verified: `gstreamer1.0-plugins-good`, `gstreamer1.0-plugins-bad` and `python3-gi` have no dependency on either. The plugin packages carry the plugins, not the GObject bindings. Added to the Debian/Ubuntu, Fedora and Arch lists, plus a new openSUSE list.
+- **What**: `install.sh` reported success on systems the app cannot run on
+- **Why**: it only checked that `import gi` and `require_version` worked for Gtk and Adw. It never checked Gst, and never checked the libadwaita *version*. The UI uses `Adw.WrapBox` and `Adw.InlineViewSwitcher`, both libadwaita 1.7, so on an older release the install succeeded and the app died later inside building a window.
+- **What**: a missing typelib produced a `ValueError` traceback naming no package
+- **Why**: `app.py` calls `require_version` at import time, so the failure happened before any check could run. The `muzika` command now points at a small launcher that checks the system first and only then imports Gtk.
+
+### Added
+- `muzika/preflight.py` — checks every typelib the code imports and every libadwaita widget the UI builds, then names the packages for the detected distribution. By capability, not by version number, so it stays correct as the UI adopts newer widgets. Run it directly when something is wrong:
+  `~/.local/share/muzika/venv/bin/python -m muzika.preflight`
+- **Minimum stated in the README**: libadwaita 1.7, i.e. Fedora 42+, Debian 13 (trixie)+, Ubuntu 25.04+, or a rolling release. Debian 12 and Ubuntu 22.04/24.04 LTS ship 1.5 or older and cannot run it.
+- **An Updating section**: `cd muzika && git pull && cd desktop && ./install.sh`, which reuses the same virtualenv and leaves playlists, settings and history alone.
+- **An "if it will not start" section** pointing at the preflight.
+
+### Changed
+- Every install command is now a single line, so it survives copy-paste. The backslash continuations are gone from the README entirely.
+
 ## 2026-09-26 — Which services can be added as sources (research, no code)
 
 ### Added
