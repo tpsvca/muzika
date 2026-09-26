@@ -23,7 +23,7 @@ except (ValueError, ImportError) as exc:  # pragma: no cover - depends on the ho
 
 Adw.init()
 
-from muzika.player_ui import MiniBar, NowPlayingPage  # noqa: E402
+from muzika.player_ui import NowPlayingPage, PlayerBar  # noqa: E402
 
 
 class FakePlayer(GObject.Object):
@@ -83,57 +83,34 @@ def page():
     return NowPlayingPage(FakeCtx(player)), player
 
 
-def test_the_mini_bar_is_hidden_on_the_song_tab(page):
+def test_now_playing_carries_no_transport_of_its_own(page):
+    """The window already has a player bar along its bottom edge.
+
+    A second one inside Now Playing stacked the same buttons twice, which is
+    what it looked like: two seek sliders and two play buttons, one above the
+    other. Android is the opposite case - its sheet covers the screen, so it
+    does need its own - but nothing here should grow a duplicate.
+    """
+    view, _player = page
+    for tab in ("song", "lyrics", "queue"):
+        view.show_tab(tab)
+        bars = [w for w in walk(view) if isinstance(w, PlayerBar)]
+        assert not bars, f"{tab} tab grew its own transport bar"
+
+
+def test_switching_tabs_does_not_break(page):
+    view, _player = page
+    for tab in ("song", "lyrics", "queue", "song"):
+        view.show_tab(tab)
+        assert view._stack.get_visible_child_name() == tab
+
+
+def test_the_song_tab_still_has_its_seek_bar(page):
+    """Removing the duplicate must not take the real controls with it."""
+    from muzika.player_ui import SeekBar
     view, _player = page
     view.show_tab("song")
-    assert view._mini_revealer.get_reveal_child() is False, \
-        "the Song tab has its own transport; a second one is clutter"
-
-
-@pytest.mark.parametrize("tab", ["lyrics", "queue"])
-def test_the_mini_bar_appears_on_the_tabs_without_transport(page, tab):
-    view, _player = page
-    view.show_tab(tab)
-    assert view._mini_revealer.get_reveal_child() is True, \
-        f"no way to pause from the {tab} tab without leaving it"
-    assert any(isinstance(w, MiniBar) for w in walk(view))
-
-
-def test_the_mini_bar_shows_what_is_playing(page):
-    view, player = page
-    view.show_tab("queue")
-    labels = [w.get_label() for w in walk(view._mini) if isinstance(w, Gtk.Label)]
-    assert player.current["title"] in labels
-    assert player.current["subtitle"] in labels
-
-
-def test_the_mini_bar_controls_reach_the_player():
-    player = FakePlayer()
-    bar = MiniBar(player)
-    buttons = [w for w in walk(bar) if isinstance(w, Gtk.Button)]
-    assert len(buttons) >= 3
-    for button in buttons:
-        button.emit("clicked")
-    assert {"previous", "toggle", "next"} <= set(player.calls)
-
-
-def test_the_play_button_follows_the_player(page):
-    view, player = page
-    view.show_tab("lyrics")
-    player.playing = True
-    view._mini.refresh_state()
-    assert view._mini._play.get_icon_name() == "media-playback-pause-symbolic"
-    player.playing = False
-    view._mini.refresh_state()
-    assert view._mini._play.get_icon_name() == "media-playback-start-symbolic"
-
-
-def test_a_loading_track_says_so_rather_than_offering_pause(page):
-    view, player = page
-    view.show_tab("lyrics")
-    player.loading = True
-    view._mini.refresh_state()
-    assert view._mini._play.get_icon_name() == "content-loading-symbolic"
+    assert any(isinstance(w, SeekBar) for w in walk(view))
 
 
 # ------------------------------------------------------------- lyrics cache

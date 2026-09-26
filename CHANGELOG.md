@@ -1,3 +1,12 @@
+## 2026-09-26 — Desktop: no second transport bar inside Now Playing
+
+### Removed
+- **What**: the compact player bar added to the desktop's Lyrics and Queue tabs
+- **Why**: it was a mistake. The desktop window already carries a player bar along its bottom edge at all times, so this stacked the same controls twice — two seek sliders and two play buttons, one directly above the other. The reasoning that produced it came from Android, where the Now Playing sheet covers the whole screen and genuinely has no other controls. That case is real and **the Android bar stays**; the desktop never had the problem it was solving.
+
+### Tests
+The three tests that asserted the bar appears are replaced by one asserting the opposite — that no tab of Now Playing grows a transport bar of its own — plus a check that removing it did not take the Song tab's own seek bar with it. Desktop 53.
+
 ## 2026-09-26 — "Forbidden" no longer ends the song
 
 ### Fixed
