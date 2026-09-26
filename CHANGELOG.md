@@ -1,3 +1,27 @@
+## 2026-09-26 — Push a library change out immediately instead of waiting
+
+### Added
+- **What**: after every library write, and on **Sync now**, the desktop asks the local Syncthing to scan the folder at once
+- **Why**: Syncthing notices a changed file through its filesystem watcher, which waits out `fsWatcherDelayS` — five seconds by default. Sensible for a folder of documents, needless for one small file we have just deliberately written. Measured between two machines: **8 s without the nudge, 3 s with it**.
+- Best-effort and silent throughout. The folder backend has to keep working with Nextcloud, Dropbox or a plain network share, so Syncthing being absent, stopped, or not sharing this folder are all normal and cost nothing but a skipped call. The config is re-read whenever the sync folder changes, since the folder may have moved between shares.
+
+### Not on Android
+The Syncthing app keeps its configuration in private storage, so another app cannot read the API key it would need. Android writes the file immediately, as it already did, and its changes travel on Syncthing's own schedule.
+
+### Already worked — measured, not assumed
+The receiving app needs no prodding: it watches the library file and reloads by itself. Against the running desktop app, each of these landed in **about two seconds**, with no restart:
+
+| change written to the file | picked up |
+|---|---|
+| a playlist added, by atomic rename as Syncthing lands a file | ~2 s |
+| a track removed from a playlist | ~2 s |
+| the whole library restored | ~2 s |
+
+So the round trip is roughly Syncthing's delay plus two seconds, and the nudge is aimed at the larger half.
+
+### Tests
+10 tests on the cases that matter — an unshared path, no Syncthing at all, a config with the GUI off, a corrupt config, and an API that refuses the connection. None may raise, and none may reach the network when there is no folder to scan. Desktop 63.
+
 ## 2026-09-26 — Android: remove a song from your playlist without hunting for it
 
 ### Added

@@ -11,6 +11,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 from . import api as api_mod
 from . import sources as source_mod
 from . import sync as sync_mod
+from . import syncthing
 from . import tasks
 from .library import LibraryPage
 from .pages import DetailPage, ExplorePage, HomePage, MoodPage, SearchPage
@@ -397,8 +398,14 @@ class MuzikaWindow(Adw.ApplicationWindow):
         folder = sync_mod.sync_folder()
         if folder is not None:
             self._own_write_at = time.time()
+            # Nudge Syncthing the moment the file is on disk. Left alone it
+            # waits out its filesystem-watcher delay, which is five seconds of
+            # nothing for a file we have just deliberately written. Silent and
+            # optional: the folder backend has to keep working with Nextcloud,
+            # Dropbox or a plain network share, none of which we can poke.
             tasks.run_async(lambda: sync_mod.export_library(self.store, folder),
-                            None, lambda exc: self.toast(f"Could not write sync file: {exc}"))
+                            lambda _result: syncthing.rescan_async(folder),
+                            lambda exc: self.toast(f"Could not write sync file: {exc}"))
         return False
 
     # ------------------------------------------------- live updates from sync
@@ -414,6 +421,7 @@ class MuzikaWindow(Adw.ApplicationWindow):
         if getattr(self, "_sync_monitor", None) is not None:
             self._sync_monitor.cancel()
             self._sync_monitor = None
+        syncthing.forget()      # the folder may have moved between Syncthing shares
         folder = sync_mod.sync_folder()
         if folder is None or sync_mod.backend() != sync_mod.BACKEND_FOLDER:
             return
@@ -681,6 +689,11 @@ class MuzikaWindow(Adw.ApplicationWindow):
             if result.get("library_added"):
                 bits.append(f"{result['library_added']} saved items")
             self.toast("Synced · " + (", ".join(bits) if bits else "already up to date"))
+            # Sync now just wrote the file; push it out rather than leaving it
+            # for Syncthing's watcher delay.
+            folder_now = sync_mod.sync_folder()
+            if folder_now is not None:
+                syncthing.rescan_async(folder_now)
 
         tasks.run_async(work, done,
                         lambda exc: None if quiet else self.toast(f"Sync failed: {exc}"))
