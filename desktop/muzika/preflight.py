@@ -53,12 +53,13 @@ INSTALL_COMMANDS: dict[str, str] = {
         "gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free"
     ),
     "debian": (
-        "sudo apt install python3-gi python3-gi-cairo python3-venv gir1.2-gtk-4.0 gir1.2-adw-1 "
+        "sudo apt update && sudo apt install python3-gi python3-gi-cairo python3-venv "
+        "gir1.2-gtk-4.0 gir1.2-adw-1 "
         "gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 "
         "gstreamer1.0-plugins-good gstreamer1.0-plugins-bad"
     ),
     "arch": (
-        "sudo pacman -S python-gobject gtk4 libadwaita gstreamer "
+        "sudo pacman -Syu python-gobject gtk4 libadwaita gstreamer "
         "gst-plugins-base gst-plugins-good gst-plugins-bad"
     ),
     "suse": (

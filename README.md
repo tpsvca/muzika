@@ -113,7 +113,7 @@ sudo dnf install python3-gobject gtk4 libadwaita gstreamer1 gstreamer1-plugins-b
 <summary><b>Debian / Ubuntu</b></summary>
 
 ```bash
-sudo apt install python3-gi python3-gi-cairo python3-venv gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+sudo apt update && sudo apt install python3-gi python3-gi-cairo python3-venv gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
 ```
 </details>
 
@@ -121,7 +121,7 @@ sudo apt install python3-gi python3-gi-cairo python3-venv gir1.2-gtk-4.0 gir1.2-
 <summary><b>Arch</b></summary>
 
 ```bash
-sudo pacman -S python-gobject gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
+sudo pacman -Syu python-gobject gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
 ```
 </details>
 
@@ -141,6 +141,10 @@ sudo zypper install python3-gobject python3-gobject-Gdk typelib-1_0-Gtk-4_0 type
 >   cannot start without them.
 > - `python3-venv` is what lets `python3 -m venv` build an environment. Without
 >   it `install.sh` cannot create the virtualenv.
+>
+> `apt update` is part of the command on purpose. A package index that predates
+> the mirror's current version makes apt ask for a `.deb` that has already been
+> removed from the pool, and it fails with a bare `404 Not Found`.
 
 Then:
 

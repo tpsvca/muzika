@@ -1,3 +1,10 @@
+## 2026-09-26 — Refresh the package index before installing
+
+### Fixed
+- **What**: the Debian install command could fail with a bare `404 Not Found` on a `.deb`
+- **Why**: a package index older than the mirror's current state makes apt ask for a file that has already been removed from the pool — it wanted `python3.13-venv 3.13.5-2` while the mirror had moved on, and fetched `python3-venv 3.13.5-1` alongside it. Nothing about the package list was wrong; the index simply needed refreshing. `sudo apt update &&` is now part of the command, with a note saying why it is there.
+- Arch's line is `pacman -Syu` rather than `-S` for the same reason, and because a partial upgrade is the wrong thing to recommend on a rolling release. Fedora and openSUSE refresh their metadata on their own.
+
 ## 2026-09-26 — install.sh failed silently on a fresh Debian
 
 ### Fixed
