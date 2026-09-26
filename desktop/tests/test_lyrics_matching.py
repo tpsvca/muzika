@@ -68,3 +68,44 @@ def test_no_duplicates():
 def test_nothing_blank_is_offered():
     for title, _artist in guesses(" - ", ""):
         assert title.strip()
+
+
+# ---------------------------------------------- not somebody else's song
+
+from muzika.api import _artist_matches, _plausible_artists  # noqa: E402
+
+
+def test_the_uploading_channel_does_not_hide_the_real_artist():
+    """Stored "artist" is often the YouTube channel, not the act.
+
+    Verifying only against it threw away correct matches for three tracks in
+    a real library. The performer is usually in the title, so both sides of
+    the dash count.
+    """
+    assert "Beth Hart" in _plausible_artists("I'd Rather Go Blind - Beth Hart", "RocKwiz")
+    assert "Cream" in _plausible_artists("Cream - Sunshine Of Your Love (HD)", "Rock s Musicas")
+
+
+def test_a_title_with_no_dash_offers_only_the_stored_artist():
+    """The regression this guards: "Open Invitation" by Jade Marie Patek was
+    answered with a different artist's song of the same name and almost the
+    same length, so the runtime check did not catch it either."""
+    assert _plausible_artists("Open Invitation", "Jade Marie Patek") == ["Jade Marie Patek"]
+
+
+def test_a_stranger_is_not_accepted_as_the_artist():
+    assert not _artist_matches("Jade Marie Patek", "CINDY")
+    assert not _artist_matches("Metallica", "Santana")
+
+
+def test_the_same_artist_survives_spelling_noise():
+    assert _artist_matches("Beth Hart", "Beth Hart")
+    assert _artist_matches("AC/DC", "AC DC")
+    assert _artist_matches("Metallica", "metallica")
+    assert _artist_matches("The Allman Brothers Band", "Allman Brothers Band")
+
+
+def test_an_unknown_artist_blocks_nothing():
+    """With no artist to check against, the old behaviour must stand."""
+    assert _artist_matches("", "Anybody")
+    assert _artist_matches("Somebody", "")

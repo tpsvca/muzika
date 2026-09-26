@@ -74,6 +74,55 @@ def _parse_lrc(text: str) -> list[tuple[int, str]]:
     return lines
 
 
+def _norm_name(value: str) -> str:
+    """Case, punctuation and accents removed, for comparing artist names."""
+    import unicodedata
+    value = unicodedata.normalize("NFKD", (value or "").lower())
+    value = "".join(c for c in value if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", " ", value).strip()
+
+
+def _artist_matches(wanted: str, found: str) -> bool:
+    """Whether a result plausibly belongs to the artist we asked about.
+
+    Lyrics databases are full of unrelated songs sharing a title, and some of
+    them share a runtime too - "Open Invitation" by Jade Marie Patek was being
+    answered with a Japanese song of the same name and almost the same length.
+    A title-only search is still worth making, but what comes back has to be
+    checked against the artist we actually know.
+    """
+    a, b = _norm_name(wanted), _norm_name(found)
+    if not a or not b:
+        return True          # nothing to check against; caller decides
+    if a in b or b in a:
+        return True
+    at, bt = set(a.split()), set(b.split())
+    if not at or not bt:
+        return False
+    overlap = len(at & bt) / min(len(at), len(bt))
+    return overlap >= 0.5
+
+
+def _plausible_artists(title: str, artist: str) -> list[str]:
+    """Every name that could reasonably be this track's performer.
+
+    The stored "artist" is frequently the uploading YouTube channel rather
+    than the act - "I'd Rather Go Blind - Beth Hart" arrives credited to
+    *RocKwiz*, "Cream - Sunshine Of Your Love (HD)" to *Rock s Musicas*. So
+    checking a lyrics result against the stored artist alone throws away
+    correct matches. The performer is usually sitting in the title instead,
+    on one side of the dash, so both sides count as candidates.
+    """
+    names = [artist] if artist else []
+    cleaned = _TITLE_NOISE.sub("", title or "").strip(" -\u2013\u2014")
+    for dash in (" - ", " \u2013 ", " \u2014 "):
+        if dash in cleaned:
+            left, right = cleaned.split(dash, 1)
+            names += [left.strip(), right.strip()]
+            break
+    return [n for n in names if n]
+
+
 def _title_variants(title: str, artist: str) -> list[tuple[str, str]]:
     """Progressively looser (title, artist) guesses for lyric lookups."""
     title = (title or "").strip()
@@ -610,8 +659,9 @@ class Api:
     def _netease_lyrics(self, track: dict) -> dict | None:
         headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://music.163.com/"}
         duration = int(track.get("duration") or 0)
-        for title, artist in _title_variants(
-                track.get("title") or "", track.get("artists") or track.get("subtitle") or ""):
+        known_artist = track.get("artists") or track.get("subtitle") or ""
+        plausible = _plausible_artists(track.get("title") or "", known_artist)
+        for title, artist in _title_variants(track.get("title") or "", known_artist):
             query = f"{title} {artist}".strip()
             response = requests.get("https://music.163.com/api/search/get",
                                     params={"s": query, "type": 1, "limit": 5},
@@ -619,6 +669,13 @@ class Api:
             songs = ((response.json().get("result") or {}).get("songs")) or []
             for song in songs:
                 if duration and abs(int(song.get("duration", 0)) / 1000 - duration) > 20:
+                    continue
+                # Same trap as LRCLIB: a fuzzy title search returns other
+                # people's songs, and a matching runtime does not make it ours.
+                if plausible and not any(
+                        _artist_matches(n, a.get("name") or "")
+                        for a in (song.get("artists") or [])
+                        for n in plausible):
                     continue
                 lyric = requests.get("https://music.163.com/api/song/lyric",
                                      params={"id": song["id"], "lv": 1, "kv": 1, "tv": -1},
@@ -700,12 +757,16 @@ class Api:
         # another - the two had slightly different titles or artists, so they
         # entered the loop at different variants.
         plain: dict | None = None
+        plausible = _plausible_artists(title, artist)
         for candidate_title, candidate_artist in _title_variants(title, artist):
             if not candidate_artist:
-                hits = [self._lrclib_search(candidate_title, "", duration)]
+                hits = [self._lrclib_search(candidate_title, "", duration,
+                                            known_artist=plausible)]
             else:
-                hits = [self._lrclib_get(candidate_title, candidate_artist, album, duration),
-                        self._lrclib_search(candidate_title, candidate_artist, duration)]
+                hits = [self._lrclib_get(candidate_title, candidate_artist, album,
+                                         duration, known_artist=plausible),
+                        self._lrclib_search(candidate_title, candidate_artist, duration,
+                                            known_artist=plausible)]
             for hit in hits:
                 if not hit:
                     continue
@@ -742,7 +803,8 @@ class Api:
         return {"text": text, "source": "LRCLIB", "lines": lines or None,
                 "provider": "LRCLIB"}
 
-    def _lrclib_get(self, title: str, artist: str, album: str, duration: int) -> dict | None:
+    def _lrclib_get(self, title: str, artist: str, album: str, duration: int,
+                    known_artist: str = "") -> dict | None:
         params = {"track_name": title, "artist_name": artist}
         if album:
             params["album_name"] = album
@@ -750,19 +812,45 @@ class Api:
             # LRCLIB only matches within a couple of seconds, so a bad duration
             # is worse than none - retry without it.
             entry = self._lrclib_request("get", {**params, "duration": duration})
-            formatted = self._lrclib_format(entry) if entry else None
-            if formatted:
-                return formatted
+            if self._owns(entry, known_artist):
+                formatted = self._lrclib_format(entry)
+                if formatted:
+                    return formatted
         entry = self._lrclib_request("get", params)
+        if not self._owns(entry, known_artist):
+            return None
         return self._lrclib_format(entry) if entry else None
 
-    def _lrclib_search(self, title: str, artist: str, duration: int) -> dict | None:
+    @staticmethod
+    def _owns(entry, known_artist: str) -> bool:
+        """Whether an LRCLIB entry belongs to the artist we know about."""
+        if not entry or not known_artist:
+            return bool(entry)
+        plausible = known_artist if isinstance(known_artist, list) else [known_artist]
+        found = (entry or {}).get("artistName") or ""
+        return any(_artist_matches(n, found) for n in plausible)
+
+    def _lrclib_search(self, title: str, artist: str, duration: int,
+                       known_artist: str = "") -> dict | None:
         params = {"track_name": title}
         if artist:
             params["artist_name"] = artist
         results = self._lrclib_request("search", params)
         if not isinstance(results, list) or not results:
             return None
+        # A title-only search is worth making, but only the artist we actually
+        # know decides whether a result belongs to this song. Without this a
+        # search for "Open Invitation" answers with a different artist's song
+        # of the same name - and sometimes of nearly the same length, so the
+        # runtime check does not catch it either.
+        if known_artist:
+            plausible = known_artist if isinstance(known_artist, list) else [known_artist]
+            owned = [e for e in results
+                     if any(_artist_matches(n, e.get("artistName") or "")
+                            for n in plausible)]
+            if not owned:
+                return None
+            results = owned
         if duration:
             # Fuzzy search will happily match a 4-minute song to an hour-long
             # mix, so prefer entries whose runtime is in the same ballpark.

@@ -112,6 +112,7 @@ object Lyrics {
      */
     private fun lrclib(track: Track): LyricsResult? {
         var plain: LyricsResult? = null
+        val mine = plausibleArtists(track)
 
         fun consider(result: LyricsResult?): LyricsResult? {
             if (result == null) return null
@@ -127,7 +128,10 @@ object Lyrics {
                 if (track.duration > 0) append("&duration=").append(track.duration)
             }
             get("https://lrclib.net/api/get?$params")?.let { body ->
-                consider(format(JSONObject(body), "LRCLIB"))?.let { return it }
+                val entry = JSONObject(body)
+                if (artistMatches(mine, entry.optString("artistName"))) {
+                    consider(format(entry, "LRCLIB"))?.let { return it }
+                }
             }
             val search = get(
                 "https://lrclib.net/api/search?track_name=${enc(title)}" +
@@ -135,7 +139,9 @@ object Lyrics {
             ) ?: continue
             val array = JSONArray(search)
             val all = (0 until array.length()).mapNotNull { array.optJSONObject(it) }
-            val near = all.filter {
+            // Only the artist we know decides whether a result is this song.
+            val owned = all.filter { artistMatches(mine, it.optString("artistName")) }
+            val near = owned.filter {
                 track.duration <= 0 ||
                     Math.abs(it.optInt("duration") - track.duration) <= 20
             }
@@ -143,7 +149,7 @@ object Lyrics {
             // acoustic or session recording never matches the studio runtime,
             // and the words are identical anyway. Having already searched on
             // title and artist, fall back to the rest rather than give up.
-            val entries = (near.ifEmpty { all })
+            val entries = (near.ifEmpty { owned })
                 // One response routinely carries both kinds; take the timed
                 // ones first rather than whichever LRCLIB happened to rank top.
                 .sortedBy { it.optString("syncedLyrics").isEmpty() }
@@ -167,6 +173,7 @@ object Lyrics {
     }
 
     private fun netease(track: Track): LyricsResult? {
+        val mine = plausibleArtists(track)
         for ((title, artist) in variants(track)) {
             val query = enc("$title $artist".trim())
             val search = get("https://music.163.com/api/search/get?s=$query&type=1&limit=5",
@@ -178,6 +185,12 @@ object Lyrics {
                 if (track.duration > 0 &&
                     Math.abs(song.optInt("duration") / 1000 - track.duration) > 20
                 ) continue
+                // Same trap as LRCLIB: a fuzzy title search returns other
+                // people's songs, and a matching runtime does not make it ours.
+                val credited = song.optJSONArray("artists")
+                val names = (0 until (credited?.length() ?: 0))
+                    .mapNotNull { credited?.optJSONObject(it)?.optString("name") }
+                if (names.isNotEmpty() && !names.any { artistMatches(mine, it) }) continue
                 val body = get(
                     "https://music.163.com/api/song/lyric?id=${song.optLong("id")}&lv=1&kv=1&tv=-1",
                     referer = "https://music.163.com/"
@@ -244,6 +257,54 @@ object Lyrics {
             }
         }
         return out.sortedBy { it.atMs }
+    }
+
+    /**
+     * Every name that could reasonably be this track's performer.
+     *
+     * The stored artist is frequently the uploading channel rather than the
+     * act - "I'd Rather Go Blind - Beth Hart" arrives credited to *RocKwiz*.
+     * Checking a lyrics result against the stored artist alone throws away
+     * correct matches, so both sides of the dash in the title count too.
+     */
+    private fun plausibleArtists(track: Track): List<String> {
+        val names = mutableListOf<String>()
+        if (track.artist.isNotBlank()) names += track.artist
+        val bare = track.title.replace(Regex("""[(\[][^)\]]*[)\]]"""), "").trim(' ', '-', '\u2013', '\u2014')
+        for (dash in listOf(" - ", " \u2013 ", " \u2014 ")) {
+            if (bare.contains(dash)) {
+                val (left, right) = bare.split(dash, limit = 2)
+                names += left.trim(); names += right.trim()
+                break
+            }
+        }
+        return names.filter { it.isNotBlank() }
+    }
+
+    private fun normalise(value: String) =
+        value.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+
+    /**
+     * Whether a result plausibly belongs to one of the artists we know about.
+     *
+     * Lyrics databases are full of unrelated songs sharing a title, and some
+     * share a runtime too - "Open Invitation" by Jade Marie Patek was being
+     * answered with a Japanese song of the same name and almost the same
+     * length, so the duration check did not catch it either.
+     */
+    private fun artistMatches(wanted: List<String>, found: String): Boolean {
+        if (wanted.isEmpty() || found.isBlank()) return true
+        val b = normalise(found)
+        if (b.isEmpty()) return true
+        return wanted.any { name ->
+            val a = normalise(name)
+            if (a.isEmpty()) return@any true
+            if (a.contains(b) || b.contains(a)) return@any true
+            val at = a.split(" ").toSet()
+            val bt = b.split(" ").toSet()
+            val shared = at.intersect(bt).size.toDouble()
+            shared / minOf(at.size, bt.size) >= 0.5
+        }
     }
 
     /** YouTube titles carry noise no lyrics database will match. */

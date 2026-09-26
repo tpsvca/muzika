@@ -1,3 +1,36 @@
+## 2026-09-26 — Lyrics: no longer answers with somebody else's song
+
+### Fixed
+- **What**: "Open Invitation" by Jade Marie Patek — an English song — was shown timed Japanese words that did not follow the music
+- **Why**: nothing verified the artist. LRCLIB carries twenty songs called *Open Invitation*; the artist-qualified search returned none, so the lookup fell back to a title-only search and accepted a stranger's song. The runtime check did not catch it either, because that entry is within five seconds of this track's length. YouTube Music had the correct words all along, but untimed — and "timed from anywhere beats untimed from nearer" chose the wrong song over the right one.
+- **How**: a result is now checked against the artists this track could plausibly have, on both apps and for LRCLIB and NetEase alike. With nothing that matches, the provider returns nothing rather than a stranger — so the chain falls through to the correct untimed words instead.
+
+### The part that needed a second attempt
+Verifying against the *stored* artist alone made things worse, dropping three correct matches. The stored artist is frequently the uploading channel rather than the act:
+
+| stored artist | title | actually by |
+|---|---|---|
+| RocKwiz | I'd Rather Go Blind - Beth Hart | Beth Hart |
+| Rock s Músicas | Cream - Sunshine Of Your Love (HD) | Cream |
+| Emma0815007 | T. Rex - Get It On (1971) HD… | T. Rex |
+
+The performer is usually sitting in the title, so both sides of the dash now count as candidates too. That restores all three while still refusing the wrong *Open Invitation*, whose title has no dash and so offers only the stored artist.
+
+### Measured
+Same 18 tracks from the listening history:
+
+| | before | after |
+|---|---|---|
+| timed | 15/18 | 14/18 |
+| untimed | 1/18 | 1/18 |
+| nothing | 2/18 | 3/18 |
+| **wrong song** | **1** | **0** |
+
+One fewer timed result, and the one lost was the wrong song. The reported track now returns YouTube Music's correct English words, untimed, with the pane saying so.
+
+### Tests
+5 desktop tests on artist matching and 1 Android live test that fails if this track is ever answered in CJK script again. Desktop 55, Android 30.
+
 ## 2026-09-26 — A big library no longer means a slow sync
 
 ### Fixed

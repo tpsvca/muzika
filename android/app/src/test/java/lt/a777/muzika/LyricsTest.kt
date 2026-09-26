@@ -90,6 +90,31 @@ class LyricsTest {
         assertTrue("settled for untimed lyrics", result!!.synced)
     }
 
+    /**
+     * The reported fault: this song is in English, and the pane showed timed
+     * Japanese words that did not follow it. LRCLIB has twenty songs called
+     * "Open Invitation"; one of them, by a different artist, is within five
+     * seconds of this one's runtime, so the duration check waved it through.
+     * Nothing verified the artist. Better to show no lyrics than someone
+     * else's.
+     */
+    @Test
+    fun `never answers with a different artists song of the same name`() {
+        val track = Track(
+            id = "lyrics-open-invitation", title = "Open Invitation",
+            artist = "Jade Marie Patek", duration = 207,
+        )
+        Lyrics.forget(track)
+        val result = Lyrics.fetch(track)
+        if (result != null) {
+            val cjk = result.text.count { it.code in 0x3040..0x30ff || it.code in 0x4e00..0x9fff }
+            assertTrue(
+                "answered with $cjk CJK characters for an English song",
+                cjk < 20,
+            )
+        }
+    }
+
     @Test
     fun `a second look is served from cache`() {
         val first = Lyrics.fetch(tidy)
