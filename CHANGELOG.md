@@ -1,3 +1,8 @@
+## 2026-09-26 — README: what to do when apt reports a 404
+
+### Added
+- A troubleshooting note for `404 Not Found` on a `.deb` while apt reports everything up to date. Debian's point releases supersede files and delete the old ones, so an index naming a superseded version asks for a file that exists on no mirror — confirmed against the pool, which carries `python3.13-venv_3.13.5-2+deb13u4`, `+deb13u5` and `3.13.15-1`, but not the plain `3.13.5-2` that apt was requesting. `apt update` does not help, because apt believes its index is current; the index has to be discarded and refetched.
+
 ## 2026-09-26 — Refresh the package index before installing
 
 ### Fixed

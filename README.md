@@ -184,6 +184,18 @@ whenever a search or a track stops working:
 ~/.local/share/muzika/venv/bin/pip install --upgrade yt-dlp ytmusicapi
 ```
 
+### If apt cannot find a package
+
+A `404 Not Found` on a `.deb` while apt insists everything is up to date means
+the local package index is naming a version the mirror has already replaced —
+Debian's point releases supersede files and remove the old ones. `apt update`
+alone will not fix it, because apt believes its index is current. Throw the
+index away and fetch it again:
+
+```bash
+sudo rm -rf /var/lib/apt/lists/* && sudo apt update
+```
+
 ### If it will not start
 
 Ask the app what is missing — it names the packages for your distribution:
