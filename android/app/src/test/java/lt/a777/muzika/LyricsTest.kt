@@ -72,6 +72,24 @@ class LyricsTest {
         assertTrue("first line lands after the song ends", lines.first().atMs < 305_000)
     }
 
+    /**
+     * Stored the way a library row often is: the artist inside the title,
+     * after the dash, and no artist field at all. Only "Artist - Song" used to
+     * be tried, so this was searched for as a song called "Beth Hart" - which
+     * finds nothing, while the timed words sit there under the obvious reading.
+     */
+    @Test
+    fun `reads Song - Artist the right way round`() {
+        val reversed = Track(
+            id = "lyrics-reversed", title = "I'd Rather Go Blind - Beth Hart",
+            artist = "", duration = 0,
+        )
+        Lyrics.forget(reversed)
+        val result = Lyrics.fetch(reversed)
+        assertNotNull("found nothing for a song LRCLIB has timed", result)
+        assertTrue("settled for untimed lyrics", result!!.synced)
+    }
+
     @Test
     fun `a second look is served from cache`() {
         val first = Lyrics.fetch(tidy)

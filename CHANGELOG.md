@@ -1,3 +1,28 @@
+## 2026-09-26 — Lyrics: 72% of tracks found timed words, now 83%
+
+### Fixed
+- **What**: songs whose timed lyrics were sitting on LRCLIB came back with nothing
+- **Why**: two separate matching faults, both measured against a real listening history rather than guessed at.
+  - **Only one dash orientation was tried.** A title is split on " - " and the left side taken as the artist. A track stored as `I'd Rather Go Blind - Beth Hart` was therefore searched for as a song called *"Beth Hart"* by an artist called *"I'd Rather Go Blind"*, which finds nothing — while twenty timed versions sat there under the obvious reading. Both orientations are now offered.
+  - **The duration filter discarded live and session recordings.** Entries more than 20 seconds from the track's runtime were dropped outright, so an acoustic or session cut never matched the studio timings even though the words are identical. Having already searched on title and artist, a search that finds nothing of the right length now falls back to the rest instead of giving up.
+
+### Measured
+Same 18 tracks from the listening history, before and after:
+
+| | before | after |
+|---|---|---|
+| timed | 13/18 (72%) | **15/18 (83%)** |
+| untimed | 1/18 | **0/18** |
+| nothing | 4/18 | 3/18 |
+
+The three still missing have no artist recorded at all, or are genuinely absent from every provider.
+
+### Checked and rejected
+Five more lyrics services were probed live; none adds timed words, so none was added. `lyrics.ovh` works but serves plain text only; ChartLyrics returns 404 to everything; Textyl no longer resolves; QQ Music's search works but its lyric endpoint is gated and returns empty; Vagalume now needs an API key. Worth knowing before anyone proposes them again: the gap was never the number of providers.
+
+### Tests
+8 desktop tests on the title guessing, which needs no network, and an Android live test for the reversed orientation. Totals: desktop 50, Android 28.
+
 ## 2026-09-26 — One command to install, verified on five distributions
 
 ### Added

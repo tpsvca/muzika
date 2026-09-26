@@ -134,11 +134,16 @@ object Lyrics {
                     if (artist.isNotEmpty()) "&artist_name=${enc(artist)}" else ""
             ) ?: continue
             val array = JSONArray(search)
-            val entries = (0 until array.length()).mapNotNull { array.optJSONObject(it) }
-                .filter {
-                    track.duration <= 0 ||
-                        Math.abs(it.optInt("duration") - track.duration) <= 20
-                }
+            val all = (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+            val near = all.filter {
+                track.duration <= 0 ||
+                    Math.abs(it.optInt("duration") - track.duration) <= 20
+            }
+            // Nothing of the right length is not the same as nothing: a live,
+            // acoustic or session recording never matches the studio runtime,
+            // and the words are identical anyway. Having already searched on
+            // title and artist, fall back to the rest rather than give up.
+            val entries = (near.ifEmpty { all })
                 // One response routinely carries both kinds; take the timed
                 // ones first rather than whichever LRCLIB happened to rank top.
                 .sortedBy { it.optString("syncedLyrics").isEmpty() }
@@ -255,6 +260,12 @@ object Lyrics {
                 val (left, right) = bare.split(dash, limit = 2)
                 add(right, artist.ifEmpty { left })
                 add(right, left)
+                // And the other way round. "Song - Artist" is just as common an
+                // upload title as "Artist - Song", and only guessing one of the
+                // two meant a track stored as "I'd Rather Go Blind - Beth Hart"
+                // was searched for as a song called "Beth Hart" - which finds
+                // nothing, while the words sit there under the obvious reading.
+                add(left, right)
             }
         }
         add(bare.replace(Regex("""(?i)\s*\bfeat\.?\b.*$"""), ""), artist)

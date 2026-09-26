@@ -109,10 +109,17 @@ def _title_variants(title: str, artist: str) -> list[tuple[str, str]]:
     if split_title:
         add(split_title, artist or split_artist)
         add(split_title, split_artist)
+        # And the other way round. "Song - Artist" is just as common an upload
+        # title as "Artist - Song", and only guessing one of the two meant a
+        # track stored as "I'd Rather Go Blind - Beth Hart" was searched for as
+        # a song called "Beth Hart" - which finds nothing, while the words are
+        # sitting there under the obvious reading.
+        add(split_artist, split_title)
     add(bare, artist)
     if bare_title:
         add(bare_title, artist or bare_artist)
         add(bare_title, bare_artist)
+        add(bare_artist, bare_title)
     add(_FEAT.sub("", cleaned), artist)
     if split_title:
         add(_FEAT.sub("", split_title), artist or split_artist)
@@ -758,13 +765,19 @@ class Api:
             return None
         if duration:
             # Fuzzy search will happily match a 4-minute song to an hour-long
-            # mix, so require the runtime to be in the same ballpark.
-            results = [e for e in results
-                       if abs(int(e.get("duration") or 0) - duration) <= 20]
-            if not results:
-                return None
-            results = sorted(
-                results, key=lambda e: abs(int(e.get("duration") or 0) - duration))
+            # mix, so prefer entries whose runtime is in the same ballpark.
+            near = [e for e in results
+                    if abs(int(e.get("duration") or 0) - duration) <= 20]
+            if near:
+                results = sorted(
+                    near, key=lambda e: abs(int(e.get("duration") or 0) - duration))
+            # Nothing close is not the same as nothing: a live, acoustic or
+            # session recording never matches the studio runtime, and the words
+            # are identical anyway. Rather than give up, fall through to the
+            # unfiltered list - having already searched on title and artist.
+            else:
+                results = sorted(
+                    results, key=lambda e: abs(int(e.get("duration") or 0) - duration))[:6]
         # Prefer an entry that actually carries synced lyrics.
         for entry in sorted(results, key=lambda e: not e.get("syncedLyrics"))[:6]:
             formatted = self._lrclib_format(entry)
