@@ -1,3 +1,18 @@
+## 2026-09-26 — Which services can be added as sources (research, no code)
+
+### Added
+- **What**: `docs/audio-sources-feasibility-2026-09-26.md` — a measured study of TikTok, the paid streaming services and the open alternatives, with the probe commands so it can be re-run when the answers go stale
+- **Why**: "can we add X?" keeps coming up and the answer is not guessable — it turns on whether a service offers search, whether yt-dlp or NewPipeExtractor can resolve it, and whether Android can reach it at all
+
+### Findings
+- **Amazon Music, Spotify, Apple Music, Deezer, Tidal, Qobuz, Pandora, Napster are impossible.** No extractor exists in yt-dlp or NewPipeExtractor for any of them; all serve Widevine-DRM'd audio to a paid account. This is a wall, not a gap — nothing to build against.
+- **TikTok cannot be a source.** Extraction works (8 yt-dlp extractors, live pull returned AAC with `track`/`artist`), but no TikTok search exists anywhere, and Android has no way to resolve it. The content is also wrong for a library: sampled durations were 42–120 s, clips rather than songs, often labelled `original sound`. The shape that would work is a desktop "Import from a link" saving into the local library — not built.
+- **Three are viable on both platforms**, because each hands over a plain stream URL and so needs no extractor at all: **Audius** (`audio/mpeg`), **Internet Archive** (`audio/flac`) and **Radio Browser** (`audio/aacp`). All probed live, no account, no API key.
+- Rejected with reasons: Mixcloud (desktop-only), Jamendo (needs an embedded `client_id`, which would break unmodified third-party installs), Bilibili/Niconico (regional, no NewPipe), PeerTube (viable but little music).
+
+### Noted
+Android's reach is bounded by NewPipeExtractor, which ships exactly four services — `bandcamp`, `peertube`, `soundcloud`, `youtube`. Any future source must either be one of those or expose a direct URL.
+
 ## 2026-09-25 — Lyrics cached, timed lyrics found more often, transport on every tab
 
 ### Added — lyrics cache (both apps)

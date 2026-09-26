@@ -9,6 +9,7 @@ Thanks for looking. A few things that will save you time.
 | `desktop/` | GTK4 / libadwaita player, Python |
 | `android/` | Kotlin + Jetpack Compose app |
 | `docs/sync-format.md` | the file both apps share — read this before touching sync |
+| `docs/audio-sources-feasibility-2026-09-26.md` | which services can be added as sources, and which cannot — read before proposing one |
 
 ## Before you open a PR
 
