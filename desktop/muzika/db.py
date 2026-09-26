@@ -3,6 +3,7 @@ search history."""
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 import threading
 import time
@@ -98,12 +99,43 @@ class Store:
         self.path = path or (DATA_DIR / "muzika.db")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        # Depth of nested bulk() blocks. While it is above zero the write
+        # methods skip their commit, so an import is one transaction instead
+        # of one per row - which is the difference between a few milliseconds
+        # and a few seconds on a large library.
+        self._bulk = 0
         self._db = sqlite3.connect(self.path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         with self._lock:
             self._db.executescript(SCHEMA)
             self._migrate()
             self._db.commit()
+
+    def _maybe_commit(self) -> None:
+        """Commit, unless a bulk() block is collecting a larger transaction.
+
+        Callers already hold the lock, so this must not try to take it.
+        """
+        if self._bulk == 0:
+            self._db.commit()
+
+    @contextlib.contextmanager
+    def bulk(self):
+        """Group many writes into one transaction.
+
+        SQLite syncs to disk on every commit, so inserting a few thousand
+        playlist rows one commit at a time is dominated by fsync rather than by
+        any actual work. Importing a library is the case that matters.
+        """
+        with self._lock:
+            self._bulk += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._bulk -= 1
+                if self._bulk == 0:
+                    self._db.commit()
 
     def _migrate(self) -> None:
         """Add columns introduced after a database was first created."""
@@ -130,12 +162,12 @@ class Store:
                 (track["id"], track.get("title", ""), track.get("subtitle", ""),
                  track.get("thumb"), track.get("duration", 0),
                  track.get("source"), track.get("url"), time.time()))
-            self._db.commit()
+            self._maybe_commit()
 
     def remove_favourite(self, video_id: str) -> None:
         with self._lock:
             self._db.execute("DELETE FROM favourites WHERE video_id = ?", (video_id,))
-            self._db.commit()
+            self._maybe_commit()
 
     def toggle_favourite(self, track: dict) -> bool:
         """Returns the new state."""
@@ -165,7 +197,7 @@ class Store:
             with self._lock:
                 self._db.execute("DELETE FROM library WHERE kind = ? AND item_id = ?",
                                  (kind, item_id))
-                self._db.commit()
+                self._maybe_commit()
             return False
         with self._lock:
             self._db.execute(
@@ -173,7 +205,7 @@ class Store:
                 "VALUES (?,?,?,?,?,?)",
                 (kind, item_id, item.get("title", ""), item.get("subtitle", ""),
                  item.get("thumb"), time.time()))
-            self._db.commit()
+            self._maybe_commit()
         return True
 
     def library(self, kind: str | None = None) -> list[dict]:
@@ -200,7 +232,7 @@ class Store:
             self._db.execute(
                 "DELETE FROM history WHERE rowid NOT IN "
                 "(SELECT rowid FROM history ORDER BY played_at DESC LIMIT 500)")
-            self._db.commit()
+            self._maybe_commit()
 
     def history(self, limit: int = 100) -> list[dict]:
         with self._lock:
@@ -213,7 +245,7 @@ class Store:
     def clear_history(self) -> None:
         with self._lock:
             self._db.execute("DELETE FROM history")
-            self._db.commit()
+            self._maybe_commit()
 
     # -------------------------------------------------------- search history
 
@@ -225,7 +257,7 @@ class Store:
             self._db.execute(
                 "INSERT OR REPLACE INTO searches (query, searched_at) VALUES (?,?)",
                 (query, time.time()))
-            self._db.commit()
+            self._maybe_commit()
 
     def recent_searches(self, limit: int = 12) -> list[str]:
         with self._lock:
@@ -236,7 +268,7 @@ class Store:
     def clear_searches(self) -> None:
         with self._lock:
             self._db.execute("DELETE FROM searches")
-            self._db.commit()
+            self._maybe_commit()
 
     # ------------------------------------------------------- local playlists
 
@@ -247,7 +279,7 @@ class Store:
             cursor = self._db.execute(
                 "INSERT INTO playlists (name, created_at, updated_at) VALUES (?,?,?)",
                 (name, now, now))
-            self._db.commit()
+            self._maybe_commit()
             return int(cursor.lastrowid)
 
     def rename_playlist(self, playlist_id: int, name: str) -> None:
@@ -257,13 +289,13 @@ class Store:
         with self._lock:
             self._db.execute("UPDATE playlists SET name = ?, updated_at = ? WHERE id = ?",
                              (name, time.time(), playlist_id))
-            self._db.commit()
+            self._maybe_commit()
 
     def delete_playlist(self, playlist_id: int) -> None:
         with self._lock:
             self._db.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", (playlist_id,))
             self._db.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
-            self._db.commit()
+            self._maybe_commit()
 
     def playlists(self) -> list[dict]:
         """Every local playlist, with its size and a cover from its first track."""
@@ -326,11 +358,12 @@ class Store:
                  self._next_position(playlist_id), time.time()))
             self._db.execute("UPDATE playlists SET updated_at = ? WHERE id = ?",
                              (time.time(), playlist_id))
-            self._db.commit()
+            self._maybe_commit()
         return True
 
     def add_many_to_playlist(self, playlist_id: int, tracks: list[dict]) -> int:
-        return sum(1 for track in tracks if self.add_to_playlist(playlist_id, track))
+        with self.bulk():
+            return sum(1 for track in tracks if self.add_to_playlist(playlist_id, track))
 
     def remove_from_playlist(self, playlist_id: int, video_id: str) -> None:
         with self._lock:
@@ -339,7 +372,7 @@ class Store:
                 (playlist_id, video_id))
             self._db.execute("UPDATE playlists SET updated_at = ? WHERE id = ?",
                              (time.time(), playlist_id))
-            self._db.commit()
+            self._maybe_commit()
         self._renumber(playlist_id)
 
     def move_track(self, playlist_id: int, video_id: str, delta: int) -> None:
@@ -360,7 +393,7 @@ class Store:
                     "WHERE playlist_id = ? AND video_id = ?", (position, playlist_id, vid))
             self._db.execute("UPDATE playlists SET updated_at = ? WHERE id = ?",
                              (time.time(), playlist_id))
-            self._db.commit()
+            self._maybe_commit()
 
     def _renumber(self, playlist_id: int) -> None:
         with self._lock:
@@ -372,7 +405,7 @@ class Store:
                     "UPDATE playlist_tracks SET position = ? "
                     "WHERE playlist_id = ? AND video_id = ?",
                     (position, playlist_id, row["video_id"]))
-            self._db.commit()
+            self._maybe_commit()
 
     # ----------------------------------------------------------- local music
 
@@ -393,13 +426,13 @@ class Store:
                   t.get("album") or "", int(t.get("track_number") or 0),
                   int(t.get("duration") or 0), t.get("thumb"), now)
                  for t in tracks])
-            self._db.commit()
+            self._maybe_commit()
         return len(tracks)
 
     def forget_local_root(self, root: str) -> None:
         with self._lock:
             self._db.execute("DELETE FROM local_tracks WHERE root = ?", (root,))
-            self._db.commit()
+            self._maybe_commit()
 
     @staticmethod
     def _local_row(row) -> dict:

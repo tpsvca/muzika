@@ -140,7 +140,11 @@ object Sync {
         return apply(payload)
     }
 
-    fun apply(payload: JSONObject): Report {
+    // One transaction for the whole import: a commit per row means an fsync
+    // per row, which is what made a large library slow to take in.
+    fun apply(payload: JSONObject): Report = Store.transaction { applyInTransaction(payload) }
+
+    private fun applyInTransaction(payload: JSONObject): Report {
         val existing = Store.playlists().associateBy { it.name.lowercase() }
         var added = 0
         var updated = 0

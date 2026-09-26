@@ -229,68 +229,71 @@ def apply_payload(store, payload: dict) -> dict:
     two being merged into something neither device chose. Favourites and saved
     items are unioned, so neither is ever silently lost.
     """
-    existing = {entry["title"].casefold(): entry for entry in store.playlists()}
-    added_playlists = updated_playlists = added_tracks = 0
+    # One transaction for the whole import: committing per row means an
+    # fsync per row, which is what made a large library slow to take in.
+    with store.bulk():
+        existing = {entry["title"].casefold(): entry for entry in store.playlists()}
+        added_playlists = updated_playlists = added_tracks = 0
 
-    for remote in payload.get("playlists", []):
-        name = (remote.get("name") or "").strip()
-        if not name:
-            continue
-        tracks = [_track_from_payload(t) for t in remote.get("tracks", []) if t.get("id")]
-        local = existing.get(name.casefold())
+        for remote in payload.get("playlists", []):
+            name = (remote.get("name") or "").strip()
+            if not name:
+                continue
+            tracks = [_track_from_payload(t) for t in remote.get("tracks", []) if t.get("id")]
+            local = existing.get(name.casefold())
 
-        if local is None:
-            playlist_id = store.create_playlist(name)
-            added_tracks += store.add_many_to_playlist(playlist_id, tracks)
-            added_playlists += 1
-            continue
+            if local is None:
+                playlist_id = store.create_playlist(name)
+                added_tracks += store.add_many_to_playlist(playlist_id, tracks)
+                added_playlists += 1
+                continue
 
-        local_full = store.playlist(local["playlist_id"])
-        local_ids = [t["id"] for t in (local_full["tracks"] if local_full else [])]
-        remote_ids = [t["id"] for t in tracks]
-        if local_ids == remote_ids:
-            continue
-        if float(remote.get("updated_at") or 0) > float(local.get("updated_at") or 0):
-            for track_id in local_ids:
-                store.remove_from_playlist(local["playlist_id"], track_id)
-            added_tracks += store.add_many_to_playlist(local["playlist_id"], tracks)
-            updated_playlists += 1
-        else:
-            added_tracks += store.add_many_to_playlist(local["playlist_id"], tracks)
-            updated_playlists += 1
+            local_full = store.playlist(local["playlist_id"])
+            local_ids = [t["id"] for t in (local_full["tracks"] if local_full else [])]
+            remote_ids = [t["id"] for t in tracks]
+            if local_ids == remote_ids:
+                continue
+            if float(remote.get("updated_at") or 0) > float(local.get("updated_at") or 0):
+                for track_id in local_ids:
+                    store.remove_from_playlist(local["playlist_id"], track_id)
+                added_tracks += store.add_many_to_playlist(local["playlist_id"], tracks)
+                updated_playlists += 1
+            else:
+                added_tracks += store.add_many_to_playlist(local["playlist_id"], tracks)
+                updated_playlists += 1
 
-    favourites_added = 0
-    for entry in payload.get("favourites", []):
-        if not entry.get("id") or store.is_favourite(entry["id"]):
-            continue
-        store.add_favourite(_track_from_payload(entry))
-        favourites_added += 1
+        favourites_added = 0
+        for entry in payload.get("favourites", []):
+            if not entry.get("id") or store.is_favourite(entry["id"]):
+                continue
+            store.add_favourite(_track_from_payload(entry))
+            favourites_added += 1
 
-    # Saved items are unioned too - removing one on another device should not
-    # silently delete it here.
-    library_added = 0
-    for entry in payload.get("library", []):
-        kind, item_id = entry.get("kind"), entry.get("id")
-        if not kind or not item_id or store.in_library(kind, item_id):
-            continue
-        store.toggle_library({
-            "kind": kind,
-            "id": item_id,
-            "title": entry.get("title") or "",
-            "subtitle": entry.get("subtitle") or "",
-            "thumb": entry.get("thumb"),
-        })
-        library_added += 1
+        # Saved items are unioned too - removing one on another device should not
+        # silently delete it here.
+        library_added = 0
+        for entry in payload.get("library", []):
+            kind, item_id = entry.get("kind"), entry.get("id")
+            if not kind or not item_id or store.in_library(kind, item_id):
+                continue
+            store.toggle_library({
+                "kind": kind,
+                "id": item_id,
+                "title": entry.get("title") or "",
+                "subtitle": entry.get("subtitle") or "",
+                "thumb": entry.get("thumb"),
+            })
+            library_added += 1
 
-    return {
-        "ok": True,
-        "device": payload.get("device", "unknown"),
-        "playlists_added": added_playlists,
-        "playlists_updated": updated_playlists,
-        "tracks_added": added_tracks,
-        "favourites_added": favourites_added,
-        "library_added": library_added,
-    }
+        return {
+            "ok": True,
+            "device": payload.get("device", "unknown"),
+            "playlists_added": added_playlists,
+            "playlists_updated": updated_playlists,
+            "tracks_added": added_tracks,
+            "favourites_added": favourites_added,
+            "library_added": library_added,
+        }
 
 
 def sync(store, folder: str | os.PathLike | None = None) -> dict:

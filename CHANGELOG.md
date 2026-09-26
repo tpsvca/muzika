@@ -1,3 +1,33 @@
+## 2026-09-26 — A big library no longer means a slow sync
+
+### Fixed
+- **What**: taking in a synced library got slow in proportion to its size — 2.4 s for 50,000 tracks on the desktop, and over a second for 2,000 on Android
+- **Why**: every row was its own transaction. SQLite syncs to disk on each commit, so importing N tracks meant N fsyncs, and the cost was almost entirely waiting for the disk rather than doing any work. The whole import is now one transaction on both sides: `Store.bulk()` on the desktop, `Store.transaction {}` on Android. `add_many_to_playlist` is batched too.
+
+### Measured
+Desktop, same synthetic libraries before and after:
+
+| tracks | file | export | import before | import after |
+|---|---|---|---|---|
+| 500 | 0.10 MB | 4 ms | 24 ms | **4 ms** |
+| 5,000 | 1.02 MB | 35 ms | 237 ms | **38 ms** |
+| 20,000 | 4.09 MB | 134 ms | 947 ms | **154 ms** |
+| 50,000 | 10.24 MB | 340 ms | 2,388 ms | **396 ms** |
+
+Android, on a desktop CPU under Robolectric, so a phone will be slower:
+
+| tracks | file | import before | import after |
+|---|---|---|---|
+| 100 | 17.8 KB | 387 ms | **171 ms** |
+| 500 | 88.4 KB | 787 ms | **370 ms** |
+| 2,000 | 353 KB | 1,324 ms | **813 ms** |
+
+### On the format itself
+A track costs **181 bytes** on Android and **289** on the desktop, which carries a couple more fields. That is flat — measured across three library sizes the spread is 1.01× — so the file is linear in the number of tracks and holds no per-library overhead. 10,000 tracks is roughly 2 MB and parses in about 10 ms; parsing was never the bottleneck.
+
+### Tests
+`SyncScaleTest` guards the thing that would actually hurt: it fails if the cost per track stops being flat, which is what a format that starts repeating itself would look like. Android 29 tests, desktop 50.
+
 ## 2026-09-26 — Lyrics: 72% of tracks found timed words, now 83%
 
 ### Fixed

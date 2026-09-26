@@ -396,6 +396,24 @@ object Store {
 
     // ------------------------------------------------------------ local music
 
+    /**
+     * Run a block as a single transaction.
+     *
+     * SQLite syncs to disk on every commit, so inserting a few thousand
+     * playlist rows one at a time is dominated by fsync rather than by any
+     * real work. Taking in a synced library is the case that matters.
+     */
+    fun <T> transaction(body: () -> T): T {
+        db.beginTransaction()
+        return try {
+            val result = body()
+            db.setTransactionSuccessful()
+            result
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     /** Replace the whole index at once, so a rescan picks up deletions too. */
     fun replaceLocalTracks(tracks: List<Track>) {
         db.beginTransaction()
