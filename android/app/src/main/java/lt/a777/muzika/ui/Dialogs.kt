@@ -53,6 +53,7 @@ fun TrackMenu(
     onDismiss: () -> Unit,
     toast: (String) -> Unit,
     onChanged: () -> Unit,
+    removeFrom: PlaylistContext? = null,
 ) {
     var choosingPlaylist by remember { mutableStateOf(false) }
     var favourite by remember { mutableStateOf(false) }
@@ -116,6 +117,29 @@ fun TrackMenu(
                     }
                 }
             )
+            // Only for your own playlists, and only when looking at the track
+            // inside one. Taking a song out used to mean finding the Reorder
+            // mode first, which is not where anyone looks to delete something.
+            if (removeFrom != null) {
+                HorizontalDivider()
+                ListItem(
+                    headlineContent = { Text("Remove from “${removeFrom.name}”") },
+                    leadingContent = {
+                        Icon(Icons.Filled.PlaylistRemove, null,
+                            tint = MaterialTheme.colorScheme.error)
+                    },
+                    modifier = Modifier.clickable {
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                Store.removeFromPlaylist(removeFrom.id, track.id)
+                                Sync.push()
+                            }
+                            toast("Removed “${track.title}”")
+                            onChanged(); onDismiss()
+                        }
+                    }
+                )
+            }
         }
     }
 }

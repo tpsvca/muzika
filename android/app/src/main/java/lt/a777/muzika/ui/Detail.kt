@@ -101,7 +101,7 @@ fun TrackListScreen(
             itemsIndexed(tracks, key = { index, track -> "$index-${track.id}" }) { index, track ->
                 SongRow(track, index = index + 1, showArtwork = false,
                     onPlay = { MuzikaPlayer.setQueue(tracks, index, false, sourceId) },
-                    onMenu = { nav.openMenu(track) })
+                    onMenu = { nav.openMenu(track, null) })
             }
             if (!loading && tracks.isEmpty()) {
                 item {
@@ -268,7 +268,9 @@ fun PlaylistScreen(playlist: Store.Playlist, version: Int, nav: Nav) {
                 } else {
                     SongRow(track, index = index + 1, showArtwork = false,
                         onPlay = { MuzikaPlayer.setQueue(tracks, index, false, sourceId) },
-                        onMenu = { nav.openMenu(track) })
+                        onMenu = {
+                            nav.openMenu(track, PlaylistContext(playlist.id, name))
+                        })
                 }
             }
             if (tracks.isEmpty()) {

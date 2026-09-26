@@ -1,3 +1,19 @@
+## 2026-09-26 — Android: remove a song from your playlist without hunting for it
+
+### Added
+- **What**: **Remove from "<playlist>"** in the ⋮ menu of any song inside one of your own playlists
+- **Why**: taking a song out was only possible after switching the screen into its reorder mode. The button that gets you there is labelled **Reorder**, which is not where anyone looks to delete something — so for practical purposes the feature was missing. It is now where the rest of the per-song actions already are.
+
+### How it decides
+The menu previously had no idea which list you were looking at, so it could not offer removal at all. It now carries an optional `PlaylistContext`, and only the rows inside one of your own playlists pass one. Everywhere else — YouTube Music albums and playlists, search results, Home shelves, the library — passes nothing and the item does not appear. A YouTube Music playlist is not ours to edit, and a song on its own has no playlist to be removed from.
+
+Removal writes through `Store.removeFromPlaylist` and pushes the sync file, exactly as the reorder mode already did, so the other devices see it. The playlist screen reloads on its own because the change bumps the library version it watches.
+
+The reorder mode keeps its own remove button; this adds a second, more obvious route rather than replacing it.
+
+### Desktop
+Unchanged — it already has a per-row remove button on its playlist page.
+
 ## 2026-09-26 — Desktop: no second transport bar inside Now Playing
 
 ### Removed

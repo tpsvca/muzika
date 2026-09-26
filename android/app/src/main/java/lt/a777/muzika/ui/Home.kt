@@ -186,7 +186,7 @@ fun HomeScreen(version: Int, nav: Nav) {
                     SongRow(track,
                         onPlay = { MuzikaPlayer.setQueue(recent, recent.indexOf(track), false,
                             "history") },
-                        onMenu = { nav.openMenu(track) })
+                        onMenu = { nav.openMenu(track, null) })
                 }
             }
 

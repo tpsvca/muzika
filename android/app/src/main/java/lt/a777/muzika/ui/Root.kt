@@ -53,13 +53,21 @@ sealed interface Dest {
     data object Settings : Dest
 }
 
+/**
+ * The playlist a track is being looked at inside, when that is one of yours.
+ *
+ * The track menu needs it to offer removal: a song on its own has no playlist
+ * to be removed from, and a YouTube Music playlist is not ours to edit.
+ */
+data class PlaylistContext(val id: Long, val name: String)
+
 /** Passed down so any screen can navigate, play and report without prop drilling. */
 class Nav(
     val push: (Dest) -> Unit,
     val back: () -> Unit,
     val toast: (String) -> Unit,
     val changed: () -> Unit,
-    val openMenu: (Track) -> Unit,
+    val openMenu: (Track, PlaylistContext?) -> Unit,
     val goTo: (Tab) -> Unit,
 )
 
@@ -69,6 +77,7 @@ fun MuzikaRoot() {
     val stack = remember { mutableStateListOf<Dest>() }
     var nowPlayingOpen by remember { mutableStateOf(false) }
     var menuTrack by remember { mutableStateOf<Track?>(null) }
+    var menuRemoveFrom by remember { mutableStateOf<PlaylistContext?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var libraryVersion by remember { mutableIntStateOf(0) }
@@ -83,7 +92,7 @@ fun MuzikaRoot() {
             back = { if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex) },
             toast = ::toast,
             changed = { libraryVersion++ },
-            openMenu = { menuTrack = it },
+            openMenu = { track, from -> menuTrack = track; menuRemoveFrom = from },
             goTo = { stack.clear(); tab = it },
         )
     }
@@ -197,7 +206,8 @@ fun MuzikaRoot() {
     }
 
     menuTrack?.let { track ->
-        TrackMenu(track, onDismiss = { menuTrack = null }, toast = ::toast,
+        TrackMenu(track, removeFrom = menuRemoveFrom,
+            onDismiss = { menuTrack = null; menuRemoveFrom = null }, toast = ::toast,
             onChanged = { libraryVersion++ })
     }
 }

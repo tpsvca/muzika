@@ -198,7 +198,7 @@ private fun SongResults(results: Results, withCards: Boolean, nav: Nav) {
                     onPlay = {
                         MuzikaPlayer.setQueue(tracks, tracks.indexOf(track), false, "search:$source")
                     },
-                    onMenu = { nav.openMenu(track) })
+                    onMenu = { nav.openMenu(track, null) })
             }
         }
         item { Spacer(Modifier.height(24.dp)) }

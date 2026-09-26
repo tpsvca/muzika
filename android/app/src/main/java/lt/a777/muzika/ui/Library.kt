@@ -309,7 +309,7 @@ private fun TrackList(
         itemsIndexed(tracks, key = { index, track -> "$index-${track.id}" }) { _, track ->
             SongRow(track,
                 onPlay = { MuzikaPlayer.setQueue(tracks, tracks.indexOf(track), false, sourceId) },
-                onMenu = { nav.openMenu(track) })
+                onMenu = { nav.openMenu(track, null) })
         }
         item { Spacer(Modifier.height(24.dp)) }
     }
