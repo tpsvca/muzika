@@ -1,3 +1,15 @@
+## 2026-09-27 — The shortcut icons vanished in dark mode on some phones
+
+### Fixed
+- **What**: the **Liked songs** and **Recently played** tiles showed a blank white square in dark mode on a Nothing phone, while looking correct in light mode and correct on a Pixel
+- **Why**: the icon was drawn with a hardcoded `Color.White` on a background of `colorScheme.primary`. That only works on a palette where `primary` is dark. Nothing OS supplies a **monochrome dynamic palette**, so in dark mode `primary` *is* white — white icon, white background, nothing to see. In light mode the same palette makes `primary` black, which is why only dark mode was affected, and the app's own green palette pairs a light `primary` with a dark `onPrimary`, which is why a Pixel showed it correctly.
+- **How**: the icon now uses `colorScheme.onPrimary`, which is by definition the colour Material intends to sit on `primary`, so it is correct in every scheme — the app's own, and any wallpaper-derived one. A caller-supplied tint is an arbitrary colour rather than a theme role, so that path picks whichever of black or white actually contrasts with it.
+
+`tintFor`, used by the mood tiles, always returns lightness 0.55 whatever the theme, so white text on those is stable and was left alone.
+
+### Verified
+Builds clean and the suite passes. The visual check on the test device was cut short — the phone locked itself mid-test — and the device that actually shows the fault is not reachable over ADB, so the fix rests on the palette reasoning above rather than a screenshot.
+
 ## 2026-09-27 — Android: coming back from a result no longer wipes the search
 
 ### Fixed

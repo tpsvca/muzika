@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -115,10 +116,22 @@ fun ShortcutTile(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
+                // Material pairs `primary` with `onPrimary`. Hardcoding white
+                // only worked on palettes where primary happens to be dark:
+                // Nothing OS uses a monochrome accent, so in dark mode primary
+                // *is* white and the icon vanished into its own background.
+                // A caller-supplied tint is an arbitrary colour, so that case
+                // picks whichever of black or white actually contrasts.
+                val background = tint ?: MaterialTheme.colorScheme.primary
+                val iconTint = when {
+                    tint == null -> MaterialTheme.colorScheme.onPrimary
+                    background.luminance() > 0.5f -> Color.Black
+                    else -> Color.White
+                }
                 Box(
-                    Modifier.size(64.dp).background(tint ?: MaterialTheme.colorScheme.primary),
+                    Modifier.size(64.dp).background(background),
                     contentAlignment = Alignment.Center
-                ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
+                ) { Icon(icon, null, tint = iconTint, modifier = Modifier.size(28.dp)) }
             } else {
                 Cover(thumb, 64.dp)
             }
