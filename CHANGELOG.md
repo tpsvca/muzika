@@ -1,3 +1,17 @@
+## 2026-09-27 — Android: coming back from a result no longer wipes the search
+
+### Fixed
+- **What**: searching, opening a result and pressing back left an empty search box with no results and the keyboard up, as though the search had never happened
+- **Why**: the root renders a tab only while nothing is pushed on top of it. Opening a result pushes a screen, so the Search tab leaves composition entirely and every `remember` inside it — the query, the filter, the results — is discarded. Coming back rebuilt it from scratch.
+- **How**: that state now lives outside composition, so back returns to exactly the search you left. `searching` is deliberately left behind: the coroutine running a search is tied to composition and cancelled on the way out, so a spinner restored on return would never stop.
+- The auto-focus was already conditional on there being no submitted query, so restoring the query also stops the keyboard reappearing over the results.
+
+### Fixed — while in there
+The offline state was declared and read but **never assigned**, so it could not appear at all: a search that failed because the network was down showed the ordinary "Nothing found" toast. It is now set from whether the catalogue call actually failed, and the toast is suppressed in that case, since an empty result and a dead connection are not the same thing.
+
+### Verified
+On the device, not just in a test: searched, opened an artist, pressed back — query kept, results kept.
+
 ## 2026-09-26 — Push a library change out immediately instead of waiting
 
 ### Added

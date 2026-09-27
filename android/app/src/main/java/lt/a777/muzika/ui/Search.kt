@@ -48,15 +48,31 @@ private class Results(
     val isEmpty get() = songs.isEmpty() && cards.isEmpty()
 }
 
+/**
+ * What the Search tab is showing, kept outside composition.
+ *
+ * Opening a result pushes a screen, and the root renders the tab only when
+ * nothing is pushed - so Search leaves composition entirely and every
+ * `remember` in it is discarded. Coming back showed an empty box and no
+ * results, with the keyboard up, as though the search had never happened.
+ * Holding it here means back returns to exactly the search you left.
+ *
+ * `searching` is deliberately not here: the coroutine running a search is tied
+ * to composition and is cancelled on the way out, so a spinner restored on
+ * return would never stop.
+ */
+private object SearchState {
+    var query by mutableStateOf("")
+    var scope by mutableStateOf(Scope.ALL)
+    var submitted by mutableStateOf("")
+    var results by mutableStateOf(Results())
+    var offline by mutableStateOf(false)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(nav: Nav) {
-    var query by remember { mutableStateOf("") }
-    var scope by remember { mutableStateOf(Scope.ALL) }
-    var submitted by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf(Results()) }
     var searching by remember { mutableStateOf(false) }
-    var offline by remember { mutableStateOf(false) }
     val coroutines = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = remember { FocusRequester() }
@@ -64,7 +80,7 @@ fun SearchScreen(nav: Nav) {
     fun run(term: String, within: Scope) {
         val clean = term.trim()
         if (clean.isEmpty()) return
-        submitted = clean
+        SearchState.submitted = clean
         searching = true
         keyboard?.hide()
         coroutines.launch {
@@ -92,21 +108,26 @@ fun SearchScreen(nav: Nav) {
                     else -> Results(cards = Sources.searchCatalogue(clean, within.filter!!))
                 }
             }
-            results = found
+            SearchState.results = found
             searching = false
-            if (found.isEmpty) nav.toast("Nothing found for “$clean”")
+            // Nothing found and the catalogue call failed is a dead network,
+            // not an empty result - say so rather than showing a blank page.
+            // This was declared and read but never actually set, so the
+            // offline state could not appear at all.
+            SearchState.offline = found.isEmpty && Innertube.lastCallFailed
+            if (found.isEmpty && !SearchState.offline) nav.toast("Nothing found for “$clean”")
         }
     }
 
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
+            value = SearchState.query,
+            onValueChange = { SearchState.query = it },
             placeholder = { Text("Songs, albums, artists, playlists") },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
             trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { query = ""; results = Results(); submitted = "" }) {
+                if (SearchState.query.isNotEmpty()) {
+                    IconButton(onClick = { SearchState.query = ""; SearchState.results = Results(); SearchState.submitted = "" }) {
                         Icon(Icons.Rounded.Close, "Clear")
                     }
                 }
@@ -114,7 +135,7 @@ fun SearchScreen(nav: Nav) {
             singleLine = true,
             shape = MaterialTheme.shapes.extraLarge,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { run(query, scope) }),
+            keyboardActions = KeyboardActions(onSearch = { run(SearchState.query, SearchState.scope) }),
             modifier = Modifier.fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 10.dp)
                 .focusRequester(focus),
@@ -129,10 +150,10 @@ fun SearchScreen(nav: Nav) {
         ) {
             Scope.entries.forEach { entry ->
                 FilterChip(
-                    selected = scope == entry,
+                    selected = SearchState.scope == entry,
                     onClick = {
-                        scope = entry
-                        if (submitted.isNotEmpty()) run(submitted, entry)
+                        SearchState.scope = entry
+                        if (SearchState.submitted.isNotEmpty()) run(SearchState.submitted, entry)
                     },
                     label = { Text(entry.label) },
                 )
@@ -142,24 +163,24 @@ fun SearchScreen(nav: Nav) {
         if (searching) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
 
         when {
-            submitted.isEmpty() -> EmptyState(
+            SearchState.submitted.isEmpty() -> EmptyState(
                 Icons.Rounded.Search, "Search everything",
                 "YouTube Music, SoundCloud and Bandcamp at once. No account needed."
             )
             // An empty list and a dead connection look identical otherwise.
-            offline -> EmptyState(
+            SearchState.offline -> EmptyState(
                 Icons.Rounded.CloudOff, "No connection",
                 "Muzika could not reach the music services. Check your network "
                     + "and try again.",
                 "Retry",
-            ) { run(submitted, scope) }
-            scope == Scope.ALL || scope == Scope.SONGS ->
-                SongResults(results, scope == Scope.ALL, nav)
-            else -> CardResults(results.cards, nav)
+            ) { run(SearchState.submitted, SearchState.scope) }
+            SearchState.scope == Scope.ALL || SearchState.scope == Scope.SONGS ->
+                SongResults(SearchState.results, SearchState.scope == Scope.ALL, nav)
+            else -> CardResults(SearchState.results.cards, nav)
         }
     }
 
-    LaunchedEffect(Unit) { if (submitted.isEmpty()) runCatching { focus.requestFocus() } }
+    LaunchedEffect(Unit) { if (SearchState.submitted.isEmpty()) runCatching { focus.requestFocus() } }
 }
 
 @Composable
