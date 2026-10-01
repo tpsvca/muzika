@@ -77,11 +77,25 @@ class NowPlayingWidget : AppWidgetProvider() {
         if (playlistId <= 0) return openApp(context)
         MuzikaPlayer.attach(context.applicationContext)
         scope.launch {
+            // Say which playlist is starting before going anywhere near the
+            // network, so the tap is acknowledged immediately.
+            val name = withContext(Dispatchers.IO) {
+                runCatching { Store.playlists().firstOrNull { it.id == playlistId }?.name }
+                    .getOrNull()
+            }
+            pendingLabel = name ?: "Starting"
+            refresh(context)
+
             val tracks = withContext(Dispatchers.IO) {
                 runCatching { Store.playlistTracks(playlistId) }.getOrDefault(emptyList())
             }
-            if (tracks.isEmpty()) openApp(context)
-            else MuzikaPlayer.setQueue(tracks, null, true, "local:$playlistId")
+            if (tracks.isEmpty()) {
+                pendingLabel = null
+                refresh(context)
+                openApp(context)
+            } else {
+                MuzikaPlayer.setQueue(tracks, null, true, "local:$playlistId")
+            }
         }
     }
 
@@ -109,9 +123,31 @@ class NowPlayingWidget : AppWidgetProvider() {
             R.id.widget_playlist_0, R.id.widget_playlist_1,
             R.id.widget_playlist_2, R.id.widget_playlist_3,
         )
+        private val PLAYLIST_ART = intArrayOf(
+            R.id.widget_playlist_art_0, R.id.widget_playlist_art_1,
+            R.id.widget_playlist_art_2, R.id.widget_playlist_art_3,
+        )
+        private val PLAYLIST_LABELS = intArrayOf(
+            R.id.widget_playlist_label_0, R.id.widget_playlist_label_1,
+            R.id.widget_playlist_label_2, R.id.widget_playlist_label_3,
+        )
 
-        /** Below this the widget is one row tall and the chips would not fit. */
-        private const val PLAYLIST_ROW_MIN_HEIGHT_DP = 120
+        /** Below this there is no room for a cover and a label underneath. */
+        private const val PLAYLIST_ROW_MIN_HEIGHT_DP = 150
+
+        /** Playlist covers, kept so a redraw does not refetch them. */
+        private val coverCache = mutableMapOf<String, Bitmap>()
+
+        /**
+         * What was tapped but has not started yet.
+         *
+         * Resolving a stream takes a second or two, and during it the widget
+         * showed the previous track with no sign the tap had landed - which
+         * reads as "nothing happened" and invites a second press. Naming the
+         * playlist straight away acknowledges the tap within a frame.
+         */
+        @Volatile
+        private var pendingLabel: String? = null
 
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -153,10 +189,17 @@ class NowPlayingWidget : AppWidgetProvider() {
             val track = MuzikaPlayer.current
             val views = RemoteViews(context.packageName, R.layout.widget_now_playing)
 
-            views.setTextViewText(R.id.widget_title, track?.title ?: "Muzika")
+            // The moment sound actually arrives, the real track takes over.
+            if (pendingLabel != null && MuzikaPlayer.isPlaying) pendingLabel = null
+            val starting = pendingLabel
+            views.setTextViewText(
+                R.id.widget_title, starting ?: track?.title ?: "Muzika")
             views.setTextViewText(
                 R.id.widget_artist,
-                track?.artist?.ifEmpty { null } ?: "Nothing playing"
+                when {
+                    starting != null -> "Starting\u2026"
+                    else -> track?.artist?.ifEmpty { null } ?: "Nothing playing"
+                }
             )
             views.setImageViewResource(
                 R.id.widget_toggle,
@@ -211,7 +254,10 @@ class NowPlayingWidget : AppWidgetProvider() {
                             views.setOnClickPendingIntent(slot, null)
                         } else {
                             views.setViewVisibility(slot, android.view.View.VISIBLE)
-                            views.setTextViewText(slot, playlist.name)
+                            views.setTextViewText(PLAYLIST_LABELS[index], playlist.name)
+                            coverCache[playlist.thumb]?.let {
+                                views.setImageViewBitmap(PLAYLIST_ART[index], it)
+                            }
                             views.setOnClickPendingIntent(slot, playlistIntent(context, playlist.id))
                         }
                     }
@@ -222,7 +268,32 @@ class NowPlayingWidget : AppWidgetProvider() {
             if (artwork != null && cached == null) {
                 scope.launch { loadArtwork(context, manager, ids, artwork) }
             }
+            val missing = playlists.mapNotNull { it.thumb }.filter { it !in coverCache }
+            if (missing.isNotEmpty()) {
+                scope.launch {
+                    missing.forEach { url -> cover(context, url)?.let { coverCache[url] = it } }
+                    render(context, manager, ids)   // redraw once they are in hand
+                }
+            }
         }
+
+        /** One playlist cover, decoded into something RemoteViews can show. */
+        private suspend fun cover(context: Context, url: String): Bitmap? = runCatching {
+            val request = ImageRequest.Builder(context)
+                .data(url)
+                .size(144, 144)
+                .transformations(RoundedCornersTransformation(16f))
+                .allowHardware(false)
+                .build()
+            val drawable = ImageLoader(context).execute(request).drawable ?: return null
+            val bitmap = (drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                ?: return null
+            if (Build.VERSION.SDK_INT >= 26 && bitmap.config == Bitmap.Config.HARDWARE) {
+                bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            } else {
+                bitmap
+            }
+        }.getOrNull()
 
         private suspend fun loadArtwork(
             context: Context,

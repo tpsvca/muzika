@@ -1,3 +1,20 @@
+## 2026-10-01 — Widget playlists: artwork, and a tap that answers back
+
+### Changed — covers instead of wrapped text
+Each playlist is now its cover with a short label underneath, rather than a name that wrapped and clipped.
+
+**Four, not five.** The widget has roughly 320dp of usable width. Five chips leave about 56dp each, which forces the cover down to ~40dp and the label under 9sp — smaller than is comfortable to read at arm's length on a home screen. Four gives about 72dp each: a 44dp cover with an 11sp label. Artwork alone was tempting and would have fitted five, but a playlist's cover here is just its first track's artwork, so two playlists can look alike; the label is what keeps them apart. The row needs more height for this, so it now appears above 150dp rather than 120dp.
+
+### Fixed — tapping a playlist looked like nothing happened
+Resolving a stream takes a second or two. In that gap the widget still showed the previous track with no sign the tap had landed, which reads as a dead button and invites a second press — and a second press would have started something else.
+
+The tapped playlist's name now appears immediately, with **Starting…** beneath it, before anything touches the network. The real track replaces it the moment sound actually arrives. The name is read from the database rather than passed through the intent, so the acknowledgement is correct even for a widget drawn before the playlist was renamed.
+
+Covers are cached once fetched, so a redraw does not refetch them, and the widget redraws itself when they arrive rather than waiting for the next update.
+
+### Not verified on device
+No widget is placed on the test phone's home screen and ADB cannot place one, so the layout has been built and its logic tested but not seen. Worth a look on the phone that has one.
+
 ## 2026-10-01 — Widget: a second row of your busiest playlists
 
 ### Added
