@@ -16,7 +16,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import lt.a777.muzika.R
+import lt.a777.muzika.data.Store
 import lt.a777.muzika.player.MuzikaPlayer
 import lt.a777.muzika.ui.MainActivity
 
@@ -34,11 +36,27 @@ class NowPlayingWidget : AppWidgetProvider() {
         ids: IntArray,
     ) = render(context, manager, ids)
 
+    /**
+     * Resizing is when the playlist row becomes possible, or stops being so.
+     * Without this the widget keeps whatever it last drew until something else
+     * happens to refresh it, so stretching it taller appeared to do nothing.
+     */
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        manager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: android.os.Bundle,
+    ) {
+        super.onAppWidgetOptionsChanged(context, manager, appWidgetId, newOptions)
+        render(context, manager, intArrayOf(appWidgetId))
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             ACTION_TOGGLE -> withPlayer(context) { MuzikaPlayer.toggle() }
             ACTION_NEXT -> withPlayer(context) { MuzikaPlayer.next() }
             ACTION_PREVIOUS -> withPlayer(context) { MuzikaPlayer.previous() }
+            ACTION_PLAYLIST -> startPlaylist(context, intent.getLongExtra(EXTRA_PLAYLIST_ID, -1L))
             else -> super.onReceive(context, intent)
         }
         if (intent.action in CONTROL_ACTIONS) refresh(context)
@@ -49,6 +67,24 @@ class NowPlayingWidget : AppWidgetProvider() {
      * was not even running there is no queue to act on, so open the app
      * instead of silently doing nothing.
      */
+    /**
+     * Shuffle one of your playlists straight from the home screen.
+     *
+     * Shuffled rather than played in order: this row is for putting something
+     * on, not for resuming a particular track.
+     */
+    private fun startPlaylist(context: Context, playlistId: Long) {
+        if (playlistId <= 0) return openApp(context)
+        MuzikaPlayer.attach(context.applicationContext)
+        scope.launch {
+            val tracks = withContext(Dispatchers.IO) {
+                runCatching { Store.playlistTracks(playlistId) }.getOrDefault(emptyList())
+            }
+            if (tracks.isEmpty()) openApp(context)
+            else MuzikaPlayer.setQueue(tracks, null, true, "local:$playlistId")
+        }
+    }
+
     private fun withPlayer(context: Context, action: () -> Unit) {
         if (MuzikaPlayer.current != null) action() else openApp(context)
     }
@@ -64,7 +100,18 @@ class NowPlayingWidget : AppWidgetProvider() {
         const val ACTION_TOGGLE = "lt.a777.muzika.widget.TOGGLE"
         const val ACTION_NEXT = "lt.a777.muzika.widget.NEXT"
         const val ACTION_PREVIOUS = "lt.a777.muzika.widget.PREVIOUS"
+        const val ACTION_PLAYLIST = "lt.a777.muzika.widget.PLAYLIST"
+        const val EXTRA_PLAYLIST_ID = "playlist_id"
         private val CONTROL_ACTIONS = setOf(ACTION_TOGGLE, ACTION_NEXT, ACTION_PREVIOUS)
+
+        /** Slots on the second row; RemoteViews cannot inflate a list. */
+        private val PLAYLIST_SLOTS = intArrayOf(
+            R.id.widget_playlist_0, R.id.widget_playlist_1,
+            R.id.widget_playlist_2, R.id.widget_playlist_3,
+        )
+
+        /** Below this the widget is one row tall and the chips would not fit. */
+        private const val PLAYLIST_ROW_MIN_HEIGHT_DP = 120
 
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -84,6 +131,16 @@ class NowPlayingWidget : AppWidgetProvider() {
             if (ids.isEmpty()) return
             render(context, manager, ids)
         }
+
+        /** One per playlist: the request code must differ or they all collide. */
+        private fun playlistIntent(context: Context, playlistId: Long): PendingIntent =
+            PendingIntent.getBroadcast(
+                context, (ACTION_PLAYLIST + playlistId).hashCode(),
+                Intent(context, NowPlayingWidget::class.java)
+                    .setAction(ACTION_PLAYLIST)
+                    .putExtra(EXTRA_PLAYLIST_ID, playlistId),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
 
         private fun intent(context: Context, action: String): PendingIntent =
             PendingIntent.getBroadcast(
@@ -135,7 +192,32 @@ class NowPlayingWidget : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_next, intent(context, ACTION_NEXT))
             views.setOnClickPendingIntent(R.id.widget_previous, intent(context, ACTION_PREVIOUS))
 
-            manager.updateAppWidget(ids, views)
+            // Each widget has its own size, so the row is decided per id
+            // rather than once for all of them.
+            val playlists = runCatching { Store.topPlaylists(PLAYLIST_SLOTS.size) }
+                .getOrDefault(emptyList())
+            for (id in ids) {
+                val tall = manager.getAppWidgetOptions(id)
+                    .getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0) >=
+                    PLAYLIST_ROW_MIN_HEIGHT_DP
+                if (!tall || playlists.isEmpty()) {
+                    views.setViewVisibility(R.id.widget_playlists, android.view.View.GONE)
+                } else {
+                    views.setViewVisibility(R.id.widget_playlists, android.view.View.VISIBLE)
+                    PLAYLIST_SLOTS.forEachIndexed { index, slot ->
+                        val playlist = playlists.getOrNull(index)
+                        if (playlist == null) {
+                            views.setViewVisibility(slot, android.view.View.INVISIBLE)
+                            views.setOnClickPendingIntent(slot, null)
+                        } else {
+                            views.setViewVisibility(slot, android.view.View.VISIBLE)
+                            views.setTextViewText(slot, playlist.name)
+                            views.setOnClickPendingIntent(slot, playlistIntent(context, playlist.id))
+                        }
+                    }
+                }
+                manager.updateAppWidget(id, views)
+            }
 
             if (artwork != null && cached == null) {
                 scope.launch { loadArtwork(context, manager, ids, artwork) }

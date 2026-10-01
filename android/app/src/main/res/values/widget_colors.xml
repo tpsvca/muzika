@@ -6,5 +6,6 @@
     <color name="widget_title">#FF161D17</color>
     <color name="widget_subtitle">#FF424940</color>
     <color name="widget_icon">#FF2E6F40</color>
+    <color name="widget_chip_background">#332E6F40</color>
     <color name="widget_art_placeholder">#FFDCE5DB</color>
 </resources>

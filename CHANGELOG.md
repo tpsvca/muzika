@@ -1,3 +1,20 @@
+## 2026-10-01 — Widget: a second row of your busiest playlists
+
+### Added
+- **What**: stretch the widget taller and a second row appears with up to four of your playlists. Tapping one shuffles it straight from the home screen.
+- **Why "busiest"**: the order is counted from the listening history — every play of a track belonging to a playlist counts towards it — so a playlist you actually listen to rises above one you made and forgot. Playlists with no plays yet still appear, newest first, so a fresh library is not an empty row. Empty playlists are left out.
+- Shuffled rather than played in order: the row is for putting something on, not for resuming a particular track.
+- The widget now arrives two cells tall by default, and resizing re-renders. Without that last part it kept whatever it last drew, so stretching it appeared to do nothing — which is exactly what it did before this change.
+
+### How the row is built
+`RemoteViews` cannot inflate a list, so the four slots exist in the layout and are hidden individually when there is nothing to put in them. The row itself only shows when the widget is at least 120dp tall, decided **per widget** rather than once for all of them, since each can be a different size. The chip background has a light and a dark variant, like the rest of the widget, because `RemoteViews` inflate in the launcher's context and cannot read this app's theme.
+
+### Tests
+5 on the selection: that listening beats editing, that a fresh library still fills the row, that empty playlists are skipped, that it never returns more than the slots available, and that an empty library gives an empty row rather than an error. Android 35.
+
+### Not verified on device
+The Pixel has no widget placed on its home screen and placing one over ADB is not possible, so the row's appearance has not been seen — only its logic tested. The widget in use is on the other phone.
+
 ## 2026-10-01 — Car and headset skip buttons, artist radio, shuffling a whole artist
 
 ### Fixed — skip buttons from a car, headset or Bluetooth remote did nothing

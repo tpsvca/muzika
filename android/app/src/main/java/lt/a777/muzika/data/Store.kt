@@ -191,6 +191,37 @@ object Store {
     data class Playlist(val id: Long, val name: String, val count: Int,
                         val updatedAt: Double, val thumb: String?)
 
+    /**
+     * Your playlists, busiest first.
+     *
+     * "Most played" is counted from the history: every play of a track that
+     * belongs to a playlist counts towards it, so a playlist you actually
+     * listen to rises above one you made and forgot. Playlists with no plays
+     * yet still appear, ordered by when you last changed them, so a fresh
+     * library is not an empty row.
+     */
+    fun topPlaylists(limit: Int = 4): List<Playlist> = query(
+        """SELECT p.id, p.name, p.updated_at,
+                  (SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id = p.id) AS n,
+                  (SELECT t.thumb FROM playlist_tracks t WHERE t.playlist_id = p.id
+                   ORDER BY t.position LIMIT 1) AS thumb,
+                  (SELECT COUNT(*) FROM history h
+                   JOIN playlist_tracks pt ON pt.video_id = h.video_id
+                   WHERE pt.playlist_id = p.id) AS plays
+           FROM playlists p
+           -- SQLite cannot see a SELECT alias from WHERE, so the emptiness
+           -- test repeats the subquery rather than referring to `n`.
+           WHERE (SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id = p.id) > 0
+           ORDER BY plays DESC, p.updated_at DESC
+           LIMIT ?""",
+        arrayOf(limit.toString()),
+    ) { c ->
+        Playlist(
+            id = c.getLong(0), name = c.getString(1), updatedAt = c.getDouble(2),
+            count = c.getInt(3), thumb = c.getString(4),
+        )
+    }
+
     fun createPlaylist(name: String): Long {
         val clean = name.trim().ifEmpty { "Untitled playlist" }
         return db.insert("playlists", null, ContentValues().apply {

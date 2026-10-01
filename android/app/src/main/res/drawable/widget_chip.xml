@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A playlist chip on the widget's second row. Tinted from the accent rather
+     than filled, so it reads as a button without competing with the artwork. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="12dp" />
+    <solid android:color="@color/widget_chip_background" />
+</shape>
