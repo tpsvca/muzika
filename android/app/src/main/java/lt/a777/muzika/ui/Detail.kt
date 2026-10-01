@@ -46,6 +46,14 @@ fun TrackListScreen(
     /** Set for catalogue pages, which can be kept in the library. */
     saveTarget: Store.Saved? = null,
     header: (@Composable () -> Unit)? = null,
+    /** Shown where a radio makes sense - an artist, not a playlist of yours. */
+    onRadio: (() -> Unit)? = null,
+    /**
+     * Where shuffling should draw from when the page lists only a few tracks.
+     * An artist page shows top songs, so shuffling those replayed the same
+     * handful; this gathers the wider catalogue first.
+     */
+    onShuffleAll: (suspend () -> List<Track>)? = null,
 ) {
     val playingHere = MuzikaPlayer.source == sourceId
     var picker by remember { mutableStateOf(false) }
@@ -93,7 +101,20 @@ fun TrackListScreen(
                         if (playingHere) MuzikaPlayer.toggle()
                         else MuzikaPlayer.setQueue(tracks, 0, false, sourceId)
                     },
-                    onShuffle = { MuzikaPlayer.setQueue(tracks, null, true, sourceId) },
+                    onRadio = onRadio,
+                    onShuffle = {
+                        if (onShuffleAll == null) {
+                            MuzikaPlayer.setQueue(tracks, null, true, sourceId)
+                        } else {
+                            scope.launch {
+                                nav.toast("Gathering every song\u2026")
+                                val all = withContext(Dispatchers.IO) { onShuffleAll() }
+                                val queue = all.ifEmpty { tracks }
+                                MuzikaPlayer.setQueue(queue, null, true, sourceId)
+                                nav.toast("Shuffling ${queue.size} songs")
+                            }
+                        }
+                    },
                 )
             }
             header?.let { item { it() } }
@@ -175,6 +196,7 @@ fun ArtistScreen(dest: Dest.ArtistPage, nav: Nav) {
         loading = false
     }
     val shelves = page?.shelves.orEmpty()
+    val radioScope = rememberCoroutineScope()
     TrackListScreen(
         title = page?.title?.ifEmpty { dest.title } ?: dest.title,
         subtitle = page?.subtitle.orEmpty(),
@@ -185,6 +207,21 @@ fun ArtistScreen(dest: Dest.ArtistPage, nav: Nav) {
         circle = true,
         loading = loading,
         saveTarget = Store.Saved("artist", dest.id, dest.title, "", dest.thumb),
+        // A radio from this artist's best-known song, which is what "more like
+        // this" means in practice.
+        onRadio = {
+            val seed = page?.tracks?.firstOrNull()
+            if (seed == null) nav.toast("Nothing to build a radio from yet")
+            else {
+                nav.toast("Starting ${dest.title} radio\u2026")
+                radioScope.launch {
+                    val tracks = withContext(Dispatchers.IO) { Innertube.radio(seed.id) }
+                    if (tracks.isEmpty()) nav.toast("No radio for this artist")
+                    else MuzikaPlayer.setQueue(tracks, 0, false, "radio:${dest.id}")
+                }
+            }
+        },
+        onShuffleAll = { Innertube.artistSongs(dest.id) },
         header = if (shelves.isEmpty()) null else ({
             Column {
                 shelves.forEach { shelf ->

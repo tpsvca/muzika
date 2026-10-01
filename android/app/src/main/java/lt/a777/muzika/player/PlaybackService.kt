@@ -2,6 +2,8 @@ package lt.a777.muzika.player
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.view.KeyEvent
+import androidx.core.content.IntentCompat
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import lt.a777.muzika.ui.MainActivity
@@ -39,6 +41,7 @@ class PlaybackService : MediaSessionService() {
         )
 
         session = MediaSession.Builder(this, QueuePlayer(player))
+            .setCallback(ButtonCallback)
             .setSessionActivity(openApp)
             .build()
             // Registering the session is what makes the notification appear.
@@ -47,6 +50,36 @@ class PlaybackService : MediaSessionService() {
             // directly - so without this the service never goes foreground and
             // the system shows no media controls at all.
             .also { addSession(it) }
+    }
+
+    /**
+     * Skip buttons from a car, a headset or a Bluetooth remote.
+     *
+     * These arrive as media-button key events. Media3 decides whether to act
+     * on one by consulting the commands it has cached for the player, and our
+     * queue is not ExoPlayer's - [QueuePlayer] advertises the skip commands,
+     * but nothing ever tells Media3 they appeared, so the event was dropped
+     * before the player saw it. Verified on a phone: sending
+     * KEYCODE_MEDIA_NEXT changed nothing and QueuePlayer was never called.
+     *
+     * Handling the event here sidesteps that bookkeeping entirely.
+     */
+    private object ButtonCallback : MediaSession.Callback {
+        override fun onMediaButtonEvent(
+            session: MediaSession,
+            controllerInfo: MediaSession.ControllerInfo,
+            intent: Intent,
+        ): Boolean {
+            val event = IntentCompat.getParcelableExtra(
+                intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java
+            ) ?: return false
+            if (event.action != KeyEvent.ACTION_DOWN) return false
+            return when (event.keyCode) {
+                KeyEvent.KEYCODE_MEDIA_NEXT -> { MuzikaPlayer.next(); true }
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { MuzikaPlayer.previous(); true }
+                else -> false
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session

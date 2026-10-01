@@ -1,5 +1,6 @@
 package lt.a777.muzika.sources
 
+import kotlinx.coroutines.async
 import lt.a777.muzika.data.Track
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -424,6 +425,42 @@ object Innertube {
      * YouTube Music's radio for one song: fifty tracks picked to sit next to it.
      * This is what "made for you" is built from - no account, no profile.
      */
+    /**
+     * Everything by an artist that is reachable from their page.
+     *
+     * The page itself carries only a "top songs" shelf - five or ten tracks -
+     * so shuffling an artist replayed the same handful every time. This walks
+     * the album and single shelves as well and pools the lot.
+     *
+     * Albums are fetched in parallel and capped: an artist with fifty records
+     * would otherwise mean fifty round trips before the first note. Anything
+     * that fails is skipped rather than losing the whole gather.
+     */
+    suspend fun artistSongs(channelId: String, maxAlbums: Int = 12): List<Track> {
+        val page = artist(channelId) ?: return emptyList()
+        val collections = page.shelves
+            .flatMap { it.items }
+            .filter { it.kind == ALBUM || it.kind == PLAYLIST }
+            .map { it.id }
+            .distinct()
+            .take(maxAlbums)
+
+        val fromCollections = runCatching {
+            kotlinx.coroutines.coroutineScope {
+                collections.map { id ->
+                    async(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { album(id)?.tracks.orEmpty() }.getOrDefault(emptyList())
+                    }
+                }.map { it.await() }.flatten()
+            }
+        }.getOrDefault(emptyList())
+
+        // Top songs first: if the gather turns up nothing, those still play.
+        return (page.tracks + fromCollections)
+            .filter { it.id.isNotEmpty() }
+            .distinctBy { it.id }
+    }
+
     fun radio(videoId: String, limit: Int = 50): List<Track> = runCatching {
         val response = call("next", JSONObject()
             .put("videoId", videoId)

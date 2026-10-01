@@ -278,6 +278,8 @@ fun DetailHeader(
     playing: Boolean = false,
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
+    /** Offered where a radio makes sense - an artist, not a playlist of yours. */
+    onRadio: (() -> Unit)? = null,
 ) {
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp),
@@ -306,6 +308,14 @@ fun DetailHeader(
                 Icon(Icons.Rounded.Shuffle, null)
                 Spacer(Modifier.width(8.dp))
                 Text("Shuffle")
+            }
+            if (onRadio != null) {
+                // Icon only: a third full-width button leaves no room for labels.
+                OutlinedButton(
+                    onClick = onRadio,
+                    modifier = Modifier.height(52.dp).width(56.dp),
+                    contentPadding = PaddingValues(0.dp),
+                ) { Icon(Icons.Rounded.Radio, "Start radio") }
             }
         }
         Spacer(Modifier.height(12.dp))

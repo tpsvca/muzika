@@ -1,3 +1,19 @@
+## 2026-10-01 — Car and headset skip buttons, artist radio, shuffling a whole artist
+
+### Fixed — skip buttons from a car, headset or Bluetooth remote did nothing
+- **Why**: those arrive as media-button key events, and Media3 decides whether to act on one by consulting the commands it has cached for the player. Muzika's queue is not ExoPlayer's — ExoPlayer holds one track at a time, so `QueuePlayer` advertises the skip commands itself, but nothing ever tells Media3 they appeared. The event was dropped before the player saw it.
+- **Proof**: sending `KEYCODE_MEDIA_NEXT` to the phone — exactly what a car sends — left the track unchanged, and instrumenting `QueuePlayer` showed Media3 never called it at all, not even `hasNextMediaItem`.
+- **How**: the session now handles the button itself, which sidesteps that bookkeeping. Verified on the phone: next advances the track, and previous steps back when pressed within five seconds or restarts the current one after that, which is the usual behaviour.
+
+### Added — artist radio
+A radio button on the artist page, seeded from their best-known song, which is what "more like this" means in practice.
+
+### Changed — shuffling an artist plays the whole catalogue
+The artist page lists a "top songs" shelf of five or ten tracks, and shuffle drew only from those, so it replayed the same handful. It now gathers the album and single shelves too and shuffles the lot. Albums are fetched in parallel and capped at twelve, since an artist with fifty records would otherwise mean fifty round trips before the first note; anything that fails is skipped rather than losing the gather.
+
+### Noted
+A test-loop fault is worth recording: `assembleDebug` without `-PmuzikaVersion` builds as version 1.0.0, so installing it over a newer release is refused as a downgrade. Those failures were being discarded, and several rounds of "testing" ran against stale code. Build test APKs with an explicit version above the installed one.
+
 ## 2026-09-27 — The shortcut icons vanished in dark mode on some phones
 
 ### Fixed
