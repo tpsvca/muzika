@@ -419,12 +419,17 @@ class MuzikaWindow(Adw.ApplicationWindow):
         Debounced: adding ten songs to a playlist should write the file once,
         not ten times, and a sync client would otherwise see every intermediate
         state.
+
+        Two seconds rather than five. The wait here is the largest single delay
+        between changing something on this machine and seeing it on the phone -
+        the transfer and the phone noticing the new file are both quicker than
+        this was - and a burst of edits still arrives well inside it.
         """
         if sync_mod.sync_folder() is None:
             return
         if self._export_source:
             GLib.source_remove(self._export_source)
-        self._export_source = GLib.timeout_add_seconds(5, self._run_export)
+        self._export_source = GLib.timeout_add_seconds(2, self._run_export)
 
     def _run_export(self) -> bool:
         self._export_source = 0

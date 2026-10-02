@@ -14,6 +14,16 @@ The player's own writes are not read back as news. Instead of ignoring events fo
 
 Watching only pulls; local edits are already pushed as they happen. That keeps two devices from taking turns rewriting the file. A playlist that arrives this way also refreshes the widget, so it shows up on its second row too.
 
+### Changed — the desktop writes sooner
+The desktop waits after a change before writing the sync file, so that adding
+ten songs writes once rather than ten times. That wait was five seconds, which
+made it the largest single delay in the whole chain — longer than the transfer
+and longer than the phone noticing the new file. It is now two, which a burst of
+edits still arrives well inside.
+
+Desktop → phone end to end is now roughly three to six seconds, against the
+relaunch it used to take.
+
 ### Verified
 Six tests on the watcher, and the suite is 42 green. The own-write guard was mutation-checked — removing it does fail the test that covers it, which is how I know that test is not vacuous. Syncthing itself was ruled out first: the phone reported the folder 100 % complete with nothing pending, so delivery was never the problem.
 
