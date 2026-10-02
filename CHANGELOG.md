@@ -27,6 +27,15 @@ relaunch it used to take.
 ### Verified
 Six tests on the watcher, and the suite is 42 green. The own-write guard was mutation-checked — removing it does fail the test that covers it, which is how I know that test is not vacuous. Syncthing itself was ruled out first: the phone reported the folder 100 % complete with nothing pending, so delivery was never the problem.
 
+### Deploy
+`./gradlew :app:testDebugUnitTest` on the Debian toolchain — 42 tests, all green. Desktop:
+63 tests green, lint clean. Released as **v1.12.0**, built and signed by CI from the tag.
+
+The signing certificate matches v1.9.1 (`a2ca9077…f9b75b`) and the versionCode went
+10901 → 11200, so it installs over the existing app as an update — no uninstall, and the
+library on the phone is kept. v1.12.0 is the first release since v1.9.1 and also carries
+the three tags that were made locally and never pushed (v1.10.0, v1.11.0, v1.11.1).
+
 **Not yet verified on a device.** No phone was attached, and the Nothing Phone 3 has no ADB at all. The one thing a device would settle is whether inotify fires across apps on that FUSE mount; the four-second poll exists precisely so the fix does not depend on the answer.
 
 ## 2026-10-02 — Importing the full Spotify playlist into MyTop
