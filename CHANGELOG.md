@@ -1,3 +1,24 @@
+## 2026-10-02 — Filling out "Metal works" from a Spotify export
+
+### Added
+- **What**: 199 tracks from a 200-track Spotify CSV export, taking "Metal works" from 6 to 205 tracks
+- **Why**: requested; the playlist had barely been started
+- **How**: the same artist-verified, duration-matched import used for MyTop and "blues and more"
+
+All 200 rows resolved and none needed a loose length match. One was already present and
+was skipped.
+
+The duplicate sweep flagged two rows, both artifacts of the check rather than real
+duplicates, and both from titles whose distinctive words disappear:
+
+- "I Am The Primal Fear" by Primal Fear — once the short words go, the title *is* the
+  artist's name, so it matches every Primal Fear track in the playlist.
+- "F.T.W. 84" by Rob Zombie — an initialism leaves nothing at all behind, so it matches
+  on the artist alone.
+
+In both cases the correct track is present once, at the right length. No repeated video
+ids, no missing covers.
+
 ## 2026-10-02 — The desktop kept showing a playlist's old song count
 
 ### Fixed
