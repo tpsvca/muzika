@@ -180,8 +180,17 @@ def _title_variants(title: str, artist: str) -> list[tuple[str, str]]:
 
 
 def _thumb(item: dict, want: int = 400) -> str | None:
-    """Pick the smallest thumbnail at least `want` px wide, else the largest."""
-    thumbs = item.get("thumbnails") or []
+    """Pick the smallest thumbnail at least `want` px wide, else the largest.
+
+    Both spellings are accepted on purpose. Search, album and artist results
+    carry `thumbnails`, but a watch playlist - which is what a radio or an
+    artist shuffle returns - spells it `thumbnail`. Reading only the plural
+    meant every radio track arrived with no artwork, and since played tracks
+    are written to the history, the Recently played row went blank too.
+    """
+    thumbs = item.get("thumbnails") or item.get("thumbnail") or []
+    if isinstance(thumbs, dict):          # a lone thumbnail, not a list of sizes
+        thumbs = [thumbs]
     if not thumbs:
         return None
     big_enough = [t for t in thumbs if t.get("width", 0) >= want]

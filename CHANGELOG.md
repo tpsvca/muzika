@@ -1,3 +1,21 @@
+## 2026-10-02 — Radio tracks arrived with no artwork
+
+### Fixed
+- **What**: everything played through a radio or an artist shuffle showed the placeholder note instead of its cover — in Now playing, Up next, and then in Recently played once it reached the history
+- **Why**: a watch playlist, which is what a radio and an artist shuffle return, spells the field `thumbnail`. Search, album and artist results spell it `thumbnails`. The extractor read only the plural, so every radio track came back with nothing. Introduced with the artist radio and shuffle work, and missed because the artist page's own tracks come from a different endpoint and looked fine.
+- **How**: both spellings are accepted, and a lone thumbnail object is tolerated as well as a list of sizes.
+
+### Measured
+| | before | after |
+|---|---|---|
+| radio tracks with artwork | 0/49 | **49/49** |
+| artist shuffle with artwork | 0/49 | **49/49** |
+| artist page (unchanged) | 5/5 | 5/5 |
+| search results (unchanged) | 36/36 | 36/36 |
+
+### Already stored
+Of 253 history rows, 10 were saved without artwork; no playlist row was affected. Those repair themselves — each play writes a fresh row and the view takes the newest for a track, so playing one again picks up its cover.
+
 ## 2026-10-02 — The artist radio button said "repeat"
 
 ### Fixed
