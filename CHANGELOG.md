@@ -1,3 +1,24 @@
+## 2026-10-02 — A playlist changed on the desktop now reaches the phone without a relaunch
+
+### Fixed
+- **What**: a playlist edited on the desktop did not appear on the phone until the app was killed and reopened
+- **Why**: the phone read the library file exactly once, when the main screen first composed, which in practice is once per launch. Syncthing had already delivered the file within a couple of seconds — the app simply never looked at it again. The desktop player has watched its copy since the beginning; the phone never did.
+- **How**: the phone now watches the sync folder while it is in front, and checks again every time it is resumed.
+
+Two mechanisms, because on Android neither is enough alone:
+
+- The folder is watched rather than the file. A sync client writes a temporary file and renames it into place, so the inode a watcher had opened is not the one that ends up holding the library. Watching the name inside the directory is what catches the rename — watching the file would have looked correct and quietly never fired.
+- `/storage/emulated/0` is a FUSE mount, where inotify does not reliably report writes made by a *different* app — and the writer here is always a different app. So the file's size and timestamp are also checked every four seconds while the app is in the foreground. When the event does arrive the reload is immediate; when it does not, the wait is a few seconds instead of a relaunch.
+
+The player's own writes are not read back as news. Instead of ignoring events for a few seconds after writing — which leaves a window where a real incoming change is mistaken for the echo and thrown away, failing in exactly the way the original bug did — the file's fingerprint is recorded as the app leaves it. Anything that does not match is somebody else's change, however soon it lands.
+
+Watching only pulls; local edits are already pushed as they happen. That keeps two devices from taking turns rewriting the file. A playlist that arrives this way also refreshes the widget, so it shows up on its second row too.
+
+### Verified
+Six tests on the watcher, and the suite is 42 green. The own-write guard was mutation-checked — removing it does fail the test that covers it, which is how I know that test is not vacuous. Syncthing itself was ruled out first: the phone reported the folder 100 % complete with nothing pending, so delivery was never the problem.
+
+**Not yet verified on a device.** No phone was attached, and the Nothing Phone 3 has no ADB at all. The one thing a device would settle is whether inotify fires across apps on that FUSE mount; the four-second poll exists precisely so the fix does not depend on the answer.
+
 ## 2026-10-02 — Importing the full Spotify playlist into MyTop
 
 ### Added

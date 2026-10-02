@@ -16,10 +16,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -27,9 +29,11 @@ import lt.a777.muzika.data.LocalMusic
 import lt.a777.muzika.data.Prefs
 import lt.a777.muzika.data.Store
 import lt.a777.muzika.data.Sync
+import lt.a777.muzika.data.SyncWatcher
 import lt.a777.muzika.data.Track
 import lt.a777.muzika.player.MuzikaPlayer
 import lt.a777.muzika.sources.Discover
+import lt.a777.muzika.widget.NowPlayingWidget
 
 /** The four places the bottom bar goes. */
 enum class Tab(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
@@ -116,6 +120,28 @@ fun MuzikaRoot() {
             libraryVersion++
             toast("Synced · ${report.describe()}")
         }
+    }
+
+    // A change made on the desktop should land here while the app is open, not
+    // at the next launch. Watching only while resumed keeps it free when the
+    // app is in the background, and the check on resume covers that gap.
+    val context = LocalContext.current
+    LifecycleResumeEffect(Unit) {
+        if (Prefs.autoSync) {
+            SyncWatcher.start {
+                scope.launch {
+                    val report = withContext(Dispatchers.IO) { Sync.import() }
+                    if (report.ok && report.describe() != "Already up to date") {
+                        libraryVersion++
+                        // A playlist that just arrived belongs on the widget too.
+                        runCatching { NowPlayingWidget.refresh(context) }
+                        toast("Updated from another device · ${report.describe()}")
+                    }
+                }
+            }
+            SyncWatcher.check()
+        }
+        onPauseOrDispose { SyncWatcher.stop() }
     }
 
     // Launcher shortcuts: act once, then forget, so rotating does not replay it.
