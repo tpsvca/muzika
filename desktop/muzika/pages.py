@@ -679,9 +679,18 @@ class DetailPage(BasePage):
         buttons.append(shuffle)
 
         if is_artist and detail.get("radio_id"):
-            radio = Gtk.Button.new_from_icon_name("media-playlist-repeat-symbolic")
+            # Labelled, like Play and Shuffle. It was an icon-only button in a
+            # row of icon-only buttons, drawn with the repeat symbol - which
+            # already means repeat on the player bar - and nobody could tell
+            # what it did. Adwaita ships no radio-receiver icon (`radio-symbolic`
+            # is the form control), so the label carries the meaning and the
+            # wireless arcs stand in for broadcast.
+            radio = Gtk.Button()
+            radio.set_child(Adw.ButtonContent(icon_name="network-wireless-symbolic",
+                                              label="Radio"))
             radio.add_css_class("pill")
-            radio.set_tooltip_text(f"Start a radio from {detail.get('title') or 'this artist'}")
+            radio.set_tooltip_text(
+                f"Endless mix based on {detail.get('title') or 'this artist'}")
             radio.connect("clicked", lambda _b: self._start_artist_radio(detail))
             buttons.append(radio)
 

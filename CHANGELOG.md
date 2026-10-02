@@ -1,3 +1,10 @@
+## 2026-10-02 — The artist radio button said "repeat"
+
+### Fixed
+- **What**: the new radio button on the artist page was unreadable — an icon-only button in a row of icon-only buttons, drawn with the **repeat** symbol, which already means repeat on the player bar
+- **Why**: Adwaita ships no radio-receiver icon. `radio-symbolic` sounds right but lives in the `ui/` set and is the form-control radio button, a plain circle, so reaching for it would have been worse.
+- **How**: it is now a labelled **Radio** button, like Play and Shuffle beside it, so the meaning does not rest on an icon at all. The wireless arcs stand in for broadcast, and the tooltip says "Endless mix based on <artist>" rather than restating the label.
+
 ## 2026-10-02 — Desktop: shuffling an artist uses their whole catalogue
 
 ### Fixed
