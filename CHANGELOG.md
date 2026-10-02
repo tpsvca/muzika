@@ -1,3 +1,18 @@
+## 2026-10-02 — Giving covers back to tracks already played without one
+
+### Fixed
+- **What**: Recently played still showed blank covers after the artwork fix — the fix applied to newly played tracks, but everything already stored without a cover stayed blank
+- **Why**: I claimed those would repair themselves. They only would if you happened to play the same track again, which for a radio track is unlikely. That was wrong, and the gaps stayed.
+- **How**: the app now repairs them on launch, quietly and in the background. First from playlists and favourites, where the cover is already known and nothing need be fetched; then by looking up whatever is left. It touches only rows missing a cover, a handful at a time, so it costs nothing on a healthy library.
+
+On this library: 10 tracks were blank, 1 was filled from a playlist with no network at all, 8 more were resolved by lookup. The last one does not resolve — the id no longer returns anything — and is left alone rather than given something invented.
+
+### Checked — Android does not share the fault
+Its radio parser reads the thumbnail from its own JSON path and always did. Probed live against four paths: search songs 20/20 with artwork, artist page 5/5, radio 50/50, artist catalogue 151/151. No change needed there.
+
+### Noted
+`window.py` had no logger, so the first line of logging added to it would have thrown `NameError` at runtime. Lint caught it; one has been declared, matching the other modules.
+
 ## 2026-10-02 — Radio tracks arrived with no artwork
 
 ### Fixed

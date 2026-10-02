@@ -242,6 +242,48 @@ class Store:
                 (limit,)).fetchall()
         return [_row_to_track(r) for r in rows]
 
+    def backfill_artwork_from_library(self) -> int:
+        """Fill in missing history artwork from what we already hold.
+
+        A track played from a radio was stored without a cover for a while.
+        Many of those also sit in a playlist or in favourites, where the cover
+        is known, so this costs nothing and needs no network.
+        """
+        with self._lock:
+            cursor = self._db.execute("""
+                UPDATE history SET thumb = (
+                    SELECT p.thumb FROM playlist_tracks p
+                    WHERE p.video_id = history.video_id
+                      AND p.thumb IS NOT NULL AND p.thumb != ''
+                    LIMIT 1)
+                WHERE (thumb IS NULL OR thumb = '')
+                  AND EXISTS (SELECT 1 FROM playlist_tracks p
+                              WHERE p.video_id = history.video_id
+                                AND p.thumb IS NOT NULL AND p.thumb != '')
+            """)
+            self._maybe_commit()
+            return cursor.rowcount
+
+    def tracks_without_artwork(self, limit: int = 40) -> list[str]:
+        """Which played tracks still have no cover, newest first."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT video_id, MAX(played_at) AS last FROM history "
+                "WHERE thumb IS NULL OR thumb = '' "
+                "GROUP BY video_id ORDER BY last DESC LIMIT ?",
+                (limit,)).fetchall()
+        return [r["video_id"] for r in rows]
+
+    def apply_artwork(self, video_id: str, url: str) -> None:
+        """Record a cover we had to go and look up."""
+        if not video_id or not url:
+            return
+        with self._lock:
+            self._db.execute(
+                "UPDATE history SET thumb = ? WHERE video_id = ? "
+                "AND (thumb IS NULL OR thumb = '')", (url, video_id))
+            self._maybe_commit()
+
     def clear_history(self) -> None:
         with self._lock:
             self._db.execute("DELETE FROM history")

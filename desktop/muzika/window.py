@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 import weakref
@@ -26,6 +27,8 @@ DESTINATIONS = [
     ("library", "Library", "audio-headphones-symbolic"),
 ]
 
+
+log = logging.getLogger(__name__)
 
 class MuzikaWindow(Adw.ApplicationWindow):
     def __init__(self, application, api, store, player):
@@ -84,7 +87,37 @@ class MuzikaWindow(Adw.ApplicationWindow):
         self.watch_sync_file()
         # Warm the SoundCloud client id so the first search does not pay for it.
         tasks.run_async(source_mod.warm_up, None, lambda _exc: None)
+        self._repair_artwork()
         self.activate_destination("home")
+
+    def _repair_artwork(self) -> None:
+        """Give covers back to tracks that were saved without one.
+
+        Radio tracks were stored with no artwork for a while, which left gaps
+        in Recently played that would only close if you happened to play the
+        same track again. This fills them in: first from playlists and
+        favourites, where the cover is already known and nothing need be
+        fetched, then by looking up whatever is left.
+
+        Quiet and bounded - it touches only rows that are missing a cover, and
+        a handful at a time, so it costs nothing on a healthy library.
+        """
+        def work():
+            from_library = self.store.backfill_artwork_from_library()
+            fetched = 0
+            for video_id in self.store.tracks_without_artwork():
+                url = self.api.artwork_for(video_id)
+                if url:
+                    self.store.apply_artwork(video_id, url)
+                    fetched += 1
+            return from_library + fetched
+
+        def done(repaired):
+            if repaired:
+                log.info("restored artwork for %s played tracks", repaired)
+                self.refresh_library()
+
+        tasks.run_async(work, done, lambda _exc: None)
 
     # ----------------------------------------------------------------- sidebar
 

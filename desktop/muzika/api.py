@@ -556,6 +556,16 @@ class Api:
             "radio_id": (data.get("radioId") or None),
         }
 
+    def artwork_for(self, video_id: str) -> str | None:
+        """The cover for one track, for repairing history saved without one."""
+        try:
+            data = self.ytm.get_watch_playlist(videoId=video_id, limit=1)
+        except Exception as exc:  # noqa: BLE001 - one dead id must not stop the rest
+            log.debug("artwork lookup failed for %s: %s", video_id, exc)
+            return None
+        track = (data.get("tracks") or [None])[0]
+        return _thumb(track) if isinstance(track, dict) else None
+
     def artist_songs(self, channel_id: str, limit: int = 200) -> list[dict]:
         """Everything by an artist, not just the handful on their page.
 
