@@ -1,3 +1,25 @@
+## 2026-10-02 — Filling out "blues and more" from a Spotify export
+
+### Added
+- **What**: 173 tracks from a 175-track Spotify CSV export, taking "blues and more" from 100 to 273 tracks
+- **Why**: requested; the playlist only had what had been added by hand
+- **How**: the same artist-verified, duration-matched import used for MyTop
+
+Every one of the 175 rows resolved, and none needed a loose length match — unusually clean
+for a blues list, where live takes and remasters normally muddy the lengths. Two were
+already present and were skipped.
+
+Only two overlapping was worth checking rather than assuming, since 100 tracks is exactly
+what a Spotify embed caps at and would have suggested this was the same playlist imported
+twice. It is not: of the 273 entries, 128 do not correspond to any row in the CSV, so the
+playlist was built from somewhere else and the two lists genuinely barely overlap.
+
+Duplicates were audited three ways afterwards rather than trusted: no repeated video ids,
+no CSV row matching more than one entry in the playlist, and a pairwise word-overlap sweep
+across all 37,128 pairs. That sweep flagged one pair, Kingfish's "S.S.S." and "Truth",
+which collide only because both titles are short enough that the artist's name dominates —
+different songs, correctly both present. Every track has a cover.
+
 ## 2026-10-02 — A playlist changed on the desktop now reaches the phone without a relaunch
 
 ### Fixed
