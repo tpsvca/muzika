@@ -301,3 +301,25 @@ def sync(store, folder: str | os.PathLike | None = None) -> dict:
     result = import_library(store, folder)
     export_library(store, folder)
     return result
+
+
+def reload_actions(result: dict) -> tuple[bool, bool]:
+    """After an import the sync file triggered: (rebuild the views, say so).
+
+    The two questions are not the same one, which is the mistake this exists to
+    prevent. "Nothing was imported" was once taken to mean "nothing to show",
+    and the views were left alone - but the rows can already be in the database
+    and only the views be stale, which is what happens whenever something other
+    than the running window writes to it: a second instance, or an import run
+    from a script. The playlist then kept its old song count on screen with the
+    real one sitting in the database underneath.
+
+    So: rebuild whenever the import worked, and only announce it when something
+    actually arrived.
+    """
+    if not result.get("ok"):
+        return False, False
+    changed = sum(result.get(key, 0) for key in (
+        "playlists_added", "playlists_updated", "tracks_added",
+        "favourites_added", "library_added"))
+    return True, changed > 0

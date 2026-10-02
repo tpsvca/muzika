@@ -407,11 +407,18 @@ class MuzikaWindow(Adw.ApplicationWindow):
         self.player.append(playable)
         self.toast(f"Added {len(playable)} to queue")
 
-    def refresh_library(self) -> None:
+    def refresh_library(self, export: bool = True) -> None:
+        """Rebuild the views from the database, and push the change out.
+
+        `export=False` is for the one case where the change came *from* the
+        sync file: there is nothing of ours to send back, and writing anyway
+        would have every incoming change bounce straight out again.
+        """
         self._library.reload()
         self._home.refresh_mine()
         self.refresh_sidebar()
-        self._schedule_export()
+        if export:
+            self._schedule_export()
 
     def _schedule_export(self) -> None:
         """Push the library to the sync folder shortly after it changes.
@@ -486,17 +493,12 @@ class MuzikaWindow(Adw.ApplicationWindow):
             return sync_mod.import_library(self.store)
 
         def done(result):
-            if not result.get("ok"):
+            refresh, announce = sync_mod.reload_actions(result)
+            if not refresh:
                 return
-            changed = (result.get("playlists_added", 0)
-                       + result.get("playlists_updated", 0)
-                       + result.get("tracks_added", 0)
-                       + result.get("favourites_added", 0)
-                       + result.get("library_added", 0))
-            if not changed:
-                return
-            self.refresh_library()
-            self.toast("Library updated from another device")
+            self.refresh_library(export=False)
+            if announce:
+                self.toast("Library updated from another device")
 
         tasks.run_async(work, done, lambda _exc: None)
         return False

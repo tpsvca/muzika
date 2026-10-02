@@ -1,3 +1,26 @@
+## 2026-10-02 — The desktop kept showing a playlist's old song count
+
+### Fixed
+- **What**: "blues and more" reached 273 tracks and the phone showed it at once, while the desktop went on saying 100 songs in both the sidebar and Home
+- **Why**: the window rebuilds its views after importing the sync file, but only when the import reported something new. Here it correctly reported nothing: the rows were already in the database, because the import had been run against it directly. "Nothing imported" was being read as "nothing to show", so the views kept their stale counts with the real ones sitting underneath.
+- **How**: rebuild the views whenever the import succeeds, and only announce it when something actually arrived. The two questions are not the same one.
+
+This is the general case of anything other than the running window writing to the
+database — a second instance, or an import run from a script — not just of how these
+tracks happened to get there.
+
+A refresh triggered this way no longer schedules an export. There is nothing of ours to
+send back when the change came *from* the sync file, and writing anyway made every
+incoming change bounce straight out again.
+
+### Verified
+Six tests on the decision, 69 green across the desktop suite, lint clean. Mutation-checked:
+restoring the old "only refresh when something changed" rule does fail the two tests that
+cover it, so they are not vacuous.
+
+### Deploy
+`desktop/install.sh` into the existing virtualenv at `~/.local/share/muzika/`.
+
 ## 2026-10-02 — Filling out "blues and more" from a Spotify export
 
 ### Added
