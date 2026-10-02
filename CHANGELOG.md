@@ -1,3 +1,39 @@
+## 2026-10-02 — "blues rock", and duplicates that slipped the old key
+
+### Added
+- **What**: a new "blues rock" playlist holding 657 tracks, merged from three Spotify CSV exports (192 + 226 + 320 rows)
+- **Why**: requested
+- **How**: the three lists overlap, so 738 rows reduced to 675 distinct songs before any lookup. 659 resolved; 13 of those are a loose length match, so they may be a different take. Five did not resolve at all and were left out rather than filled with a near-miss, all of them obscure: bLandPoe, Walerka, McLoud, The Healing Factory, PerSonic.
+
+### Fixed — duplicates the import had let through
+A word-overlap sweep across every playlist found four pairs that were genuinely the same
+song entered twice. The duplicate key compared normalised strings, which missed two
+classes:
+
+- **"&" read differently from "and"**, so "Pride & Joy" and "Pride and Joy" were two songs.
+- **Bracketed text was dropped**, which works when it trails but not when a title *opens*
+  with it: "(I'm Your) Hoochie Coochie Man" and "I'm Your Hoochie Coochie Man (feat. …)"
+  are one song and produced two different strings.
+
+Removed, keeping the better copy of each: Pride and Joy (Stevie Ray Vaughan), I'm Your
+Hoochie Coochie Man (Muddy Waters), Johnny B Goode (Chuck Berry, kept the correct
+spelling), and Casablanca (kept "Jessica Jay" at the released length over "Jay Jessica" at
+six minutes). MyTop is 465 and "blues rock" 657 as a result.
+
+Four more pairs were examined and **left alone**, because looking alike is not being the
+same song: Springsteen's "Born to Run" and "Born in the U.S.A."; Kingfish's "S.S.S." and
+"Truth"; two Postmodern Jukebox arrangements of "All About That Bass"; and AC/DC's two
+released versions of "Problem Child" at 5:46 and 5:25.
+
+The key now compares significant words as a set, reads "&" as "and", and treats one title
+contained in another as the same song. Containment alone was tried and is far too eager:
+a title reducing to one word sits inside half the catalogue — "Born in the U.S.A." keeps
+only "born", which is inside "Born to Run" — and one reducing to nothing, like "S.S.S.",
+sits inside everything. So the contained title must carry at least two words of its own,
+the artists must share one, and a title with no words left identifies nothing. Checked
+against all nine cases above, including the ones that must *not* collapse: a live take
+stays separate from the studio cut, and two artists' "Hallelujah" stay apart.
+
 ## 2026-10-02 — Filling out "Metal works" from a Spotify export
 
 ### Added
