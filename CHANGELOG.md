@@ -1,3 +1,16 @@
+## 2026-10-02 — Importing the full Spotify playlist into MyTop
+
+### Added
+- **What**: the remaining tracks from the 467-track Spotify export, taking MyTop from 113 to 467 tracks
+- **Why**: the earlier import could only read the 100 tracks Spotify's embed exposes; the CSV export carries the whole playlist
+- **How**: each row is searched on YouTube Music and accepted only when the artist matches, so a same-titled song by somebody else is never substituted. The CSV's `Duration` column settles which take to take — within 25 seconds of Spotify's length — which separates a studio cut from a live or extended one.
+
+Duplicates were skipped three ways: against what MyTop already held, against repeats inside the CSV itself, and again on the resolved match, since two different CSV rows can point at the same YouTube track. 354 added, 0 duplicate ids and 0 duplicate title+artist pairs afterwards, every track with a cover.
+
+Two rows needed the spelling fixed before they resolved: the CSV says "Mandowar" for Manowar, and credits "Clint Eastwood" to Electronic Swing Orchestra rather than Gorillaz. Two did not resolve at all and were left out rather than filled with a near-miss: "Booyaka 619" (WWE/P.O.D.) and Rockpile's "Play That Fast Thing (One More Time)".
+
+The library file was written and Syncthing asked to scan it, so the phone picks the playlist up without waiting.
+
 ## 2026-10-02 — Giving covers back to tracks already played without one
 
 ### Fixed
