@@ -1,3 +1,21 @@
+## 2026-10-02 — Desktop: shuffling an artist uses their whole catalogue
+
+### Fixed
+- **What**: shuffling an artist on the desktop played only the five songs listed on their page — "Shuffling 5 songs" for an artist with hundreds
+- **Why**: the button shuffled whatever the page happened to show, which is a "top songs" shelf of about five. The same fault was fixed on Android last week; the desktop was left behind because that is where it was reported.
+- **How**: YouTube Music publishes a shuffle playlist covering an artist's whole catalogue on the same page, and `ytmusicapi` already hands it over as `shuffleId` — it was being parsed and then ignored. Following it gives **234 tracks for P!nk instead of 5**. The page's own tracks remain the fallback for artists without one.
+
+This is a better approach than the one taken on Android, which walks the album shelves and fetches up to twelve of them. Worth porting back.
+
+### Added
+An artist radio button on the artist page, from the `radioId` the page already carried — 98 tracks when tried.
+
+### Measured
+| | before | after |
+|---|---|---|
+| P!nk, shuffle | 5 tracks | **234** |
+| P!nk, radio | not offered | 98 |
+
 ## 2026-10-01 — Widget playlists: artwork, and a tap that answers back
 
 ### Changed — covers instead of wrapped text

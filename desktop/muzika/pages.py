@@ -661,15 +661,29 @@ class DetailPage(BasePage):
         play.connect("clicked", lambda _b: self._on_play_clicked(tracks))
         buttons.append(play)
 
+        is_artist = detail.get("kind") == api_mod.ARTIST
         shuffle = Gtk.Button()
         shuffle.set_child(Adw.ButtonContent(icon_name="media-playlist-shuffle-symbolic",
                                             label="Shuffle"))
         shuffle.add_css_class("pill")
         shuffle.set_sensitive(bool(tracks))
-        shuffle.connect("clicked",
-                        lambda _b: self.ctx.play_tracks(tracks, shuffle=True,
-                                                        source=self._source_id()))
+        if is_artist:
+            # An artist page lists a handful of top songs, so shuffling those
+            # replayed the same few. YouTube Music publishes a shuffle playlist
+            # covering the whole catalogue; follow that instead.
+            shuffle.connect("clicked", lambda _b: self._shuffle_everything(detail, tracks))
+        else:
+            shuffle.connect("clicked",
+                            lambda _b: self.ctx.play_tracks(tracks, shuffle=True,
+                                                            source=self._source_id()))
         buttons.append(shuffle)
+
+        if is_artist and detail.get("radio_id"):
+            radio = Gtk.Button.new_from_icon_name("media-playlist-repeat-symbolic")
+            radio.add_css_class("pill")
+            radio.set_tooltip_text(f"Start a radio from {detail.get('title') or 'this artist'}")
+            radio.connect("clicked", lambda _b: self._start_artist_radio(detail))
+            buttons.append(radio)
 
         queue = Gtk.Button.new_from_icon_name("list-add-symbolic")
         queue.add_css_class("pill")
@@ -697,6 +711,34 @@ class DetailPage(BasePage):
         text.append(buttons)
         header.append(text)
         return header
+
+    def _shuffle_everything(self, detail: dict, fallback: list[dict]) -> None:
+        """Shuffle the artist's whole catalogue, not the five on the page."""
+        self.ctx.toast("Gathering every song…")
+
+        def done(tracks):
+            chosen = tracks or fallback
+            if not chosen:
+                self.ctx.toast("Nothing to shuffle")
+                return
+            self.ctx.play_tracks(chosen, shuffle=True, source=self._source_id())
+            self.ctx.toast(f"Shuffling {len(chosen)} songs")
+
+        tasks.run_async(lambda: self.ctx.api.artist_songs(detail["id"]), done,
+                        lambda exc: self.ctx.toast(f"Could not gather songs: {exc}"))
+
+    def _start_artist_radio(self, detail: dict) -> None:
+        name = detail.get("title") or "this artist"
+        self.ctx.toast(f"Starting {name} radio…")
+
+        def done(tracks):
+            if not tracks:
+                self.ctx.toast("No radio for this artist")
+                return
+            self.ctx.play_tracks(tracks, 0, shuffle=False, source=f"radio:{detail['id']}")
+
+        tasks.run_async(lambda: self.ctx.api.radio(playlist_id=detail["radio_id"]), done,
+                        lambda exc: self.ctx.toast(f"Radio failed: {exc}"))
 
     def _on_library_toggled(self, button: Gtk.ToggleButton, detail: dict) -> None:
         entry = {"kind": detail["kind"], "id": detail["id"], "title": detail.get("title", ""),

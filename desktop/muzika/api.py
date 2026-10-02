@@ -547,6 +547,29 @@ class Api:
             "radio_id": (data.get("radioId") or None),
         }
 
+    def artist_songs(self, channel_id: str, limit: int = 200) -> list[dict]:
+        """Everything by an artist, not just the handful on their page.
+
+        An artist page carries a "songs" shelf of five or so, and shuffling
+        those replayed the same few every time. YouTube Music publishes a
+        shuffle playlist for the whole catalogue on the same page, so this
+        follows that instead and only falls back to the visible tracks when
+        the page does not offer one.
+        """
+        detail = self.artist(channel_id)
+        for key in ("shuffle_id", "radio_id"):
+            target = detail.get(key)
+            if not target:
+                continue
+            try:
+                found = self.radio(playlist_id=target, limit=limit)
+            except Exception as exc:  # noqa: BLE001 - fall through to the shelf
+                log.debug("artist %s via %s failed: %s", channel_id, key, exc)
+                continue
+            if found:
+                return found
+        return detail.get("tracks") or []
+
     def radio(self, video_id: str | None = None, playlist_id: str | None = None,
               shuffle: bool = False, limit: int = 50) -> list[dict]:
         """Queue continuation - what YouTube Music would play next."""
