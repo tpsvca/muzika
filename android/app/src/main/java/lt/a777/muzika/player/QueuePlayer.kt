@@ -12,6 +12,7 @@ import androidx.media3.common.Player
  * and the notification and lock screen lose their skip buttons. This wrapper
  * advertises the commands and routes them back to the real queue.
  */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class QueuePlayer(inner: Player) : ForwardingPlayer(inner) {
 
     private val skipCommands = intArrayOf(
@@ -37,6 +38,11 @@ class QueuePlayer(inner: Player) : ForwardingPlayer(inner) {
     override fun pause() = MuzikaPlayer.pause()
     override fun setPlayWhenReady(playWhenReady: Boolean) =
         if (playWhenReady) MuzikaPlayer.play() else MuzikaPlayer.pause()
+
+    // A track shown but not yet fetched has to remember the spot for play,
+    // and a swiped-away notification must not leave a loaded track idle.
+    override fun seekTo(positionMs: Long) = MuzikaPlayer.seekTo(positionMs)
+    override fun stop() = MuzikaPlayer.dismiss()
 
     override fun seekToNext() = MuzikaPlayer.next()
     override fun seekToNextMediaItem() = MuzikaPlayer.next()

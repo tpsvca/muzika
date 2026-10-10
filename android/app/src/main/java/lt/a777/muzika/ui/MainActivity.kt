@@ -2,6 +2,7 @@ package lt.a777.muzika.ui
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -25,9 +26,17 @@ class MainActivity : ComponentActivity() {
         // auto-advanced with the app hidden, which Android 12+ kills the app for.
         runCatching { startService(Intent(this, PlaybackService::class.java)) }
 
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
-                .launch(Manifest.permission.POST_NOTIFICATIONS)
+        val wanted = when {
+            Build.VERSION.SDK_INT >= 33 -> listOf(Manifest.permission.POST_NOTIFICATIONS)
+            Build.VERSION.SDK_INT < 30 -> listOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            )
+            else -> emptyList()
+        }.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (wanted.isNotEmpty()) {
+            registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
+                .launch(wanted.toTypedArray())
         }
         ensureStorageAccess()
         Launch.request(intent?.getStringExtra("destination"))
@@ -43,7 +52,13 @@ class MainActivity : ComponentActivity() {
         Launch.request(intent.getStringExtra("destination"))
     }
 
-    /** The sync folder lives in shared storage, which needs all-files access. */
+    /**
+     * The sync folder lives in shared storage, which needs all-files access
+     * from Android 11. Before that the storage permissions asked for in
+     * onCreate are what it takes - and they were never asked for, so on
+     * Android 8 to 10 the library and handoff files could not be read or
+     * written at all ("Permission denied" on every save).
+     */
     private fun ensureStorageAccess() {
         if (Build.VERSION.SDK_INT >= 30 && !Environment.isExternalStorageManager()) {
             runCatching {

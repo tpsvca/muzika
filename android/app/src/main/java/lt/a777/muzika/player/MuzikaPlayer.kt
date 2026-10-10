@@ -2,8 +2,10 @@ package lt.a777.muzika.player
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.ComponentName
 import android.content.Intent
-import androidx.core.content.ContextCompat
+import android.content.ServiceConnection
+import android.os.IBinder
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +17,8 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.SilenceMediaSource
+import androidx.media3.session.MediaSessionService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +34,12 @@ private const val STALL_TIMEOUT_MS = 12_000L
 
 /** A pause, a skip and a resume in quick succession write the handoff file once. */
 private const val HANDOFF_SETTLE_MS = 1_500L
+
+/** How often a paused player looks for another device's session: 8 ticks, 4 s. */
+private const val FOLLOW_TICKS = 8
+
+/** Marks the stand-in item a [MuzikaPlayer.cue] puts in ExoPlayer. */
+private object CueTag
 
 const val REPEAT_NONE = 0
 const val REPEAT_ALL = 1
@@ -97,6 +107,22 @@ object MuzikaPlayer {
     private var widgetTicks = 0
     /** Counts tick() passes between saves of the position. */
     private var saveTicks = 0
+    /** Counts tick() passes between looks at the handoff file while paused. */
+    private var followTicks = 0
+
+    /**
+     * Whether the app is on screen. Taking over another device's session
+     * says so in a toast only then: one shown later, when the app is next
+     * opened, would describe something long since over.
+     */
+    var inFront = false
+
+    /**
+     * The media notification was swiped away. Media3 turns that into a stop,
+     * and showing the next session from another device would put it straight
+     * back, so nothing is cued until something is played here again.
+     */
+    private var notificationDismissed = false
 
     /** Whether the saved session has been read back yet; it only ever is once. */
     private var restored = false
@@ -118,6 +144,8 @@ object MuzikaPlayer {
      * and every widget redraw would take it over again from the top.
      */
     private var adoptedRemote: String? = null
+    /** Our own binding to [PlaybackService]; see [ensureService]. */
+    private var serviceBinding: ServiceConnection? = null
     /** The pending write of the handoff file, so a burst of changes writes once. */
     private var handoffJob: kotlinx.coroutines.Job? = null
 
@@ -159,7 +187,11 @@ object MuzikaPlayer {
      * play has to resolve a stream first rather than just un-pause.
      */
     private val needsLoad: Boolean
-        get() = current != null && (exo?.mediaItemCount ?: 0) == 0
+        get() = current != null && ((exo?.mediaItemCount ?: 0) == 0 || cued)
+
+    /** ExoPlayer holds the silent stand-in from [cue], not a real stream. */
+    private val cued: Boolean
+        get() = exo?.currentMediaItem?.localConfiguration?.tag === CueTag
 
     /**
      * Read back what was playing before the process died, once.
@@ -184,6 +216,7 @@ object MuzikaPlayer {
         retriedCurrent = false; recovering = false; loading = false; errorText = null
         queue = emptyList(); order = mutableListOf(); cursor = -1
         current = null; source = null; notice = null; resumeAtMs = 0
+        notificationDismissed = false; inFront = false
     }
 
     /** Takes on a saved session, paused, with nothing loaded until play. */
@@ -201,6 +234,49 @@ object MuzikaPlayer {
         queueIndex = cursor
         current = order.getOrNull(cursor)?.let { queue.getOrNull(it) }
         localChangedAt = saved.savedAt
+        cue()
+    }
+
+    /**
+     * Put the current track in front of the system without fetching it.
+     *
+     * The notification, the lock screen and the media card in the shade all
+     * come from the media session, and Media3 hides them as soon as ExoPlayer
+     * is empty or idle - which is exactly how a restored track, a parked one
+     * and another device's session were left. So the shade kept showing the
+     * song this phone last played, or nothing, while the widget showed the
+     * desktop's: "Rusty Cage" in the app and on the widget, a stale card in
+     * the shade.
+     *
+     * A silent source the length of the track, carrying its title, artist and
+     * artwork, sits paused at the saved spot instead. It costs no network, and
+     * play still resolves the real stream first - see [needsLoad].
+     */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun cue() {
+        val player = exo ?: return
+        val track = current
+        val length = durationMs.takeIf { it > 0 } ?: ((track?.duration ?: 0) * 1000L)
+        if (track == null || length <= 0 || notificationDismissed) {
+            player.stop()
+            player.clearMediaItems()
+            return
+        }
+        val silence = SilenceMediaSource(length * 1000).apply {
+            updateMediaItem(
+                MediaItem.Builder()
+                    .setUri(android.net.Uri.EMPTY)
+                    .setMediaId(track.id)
+                    .setTag(CueTag)
+                    .setMediaMetadata(metadata(track))
+                    .build()
+            )
+        }
+        // Never meant to be heard; a stand-in that played would also claim
+        // the session for this phone and send it to the other devices.
+        player.playWhenReady = false
+        player.setMediaSource(silence, resumeAtMs.coerceIn(0, length - 1))
+        player.prepare()
     }
 
     /**
@@ -306,6 +382,8 @@ object MuzikaPlayer {
         }
         restore(context)
         if (repeat == REPEAT_ONE) exo?.repeatMode = Player.REPEAT_MODE_ONE
+        // Restored before there was a player - by the widget, after a reboot.
+        if (needsLoad) cue()
         tick()
     }
 
@@ -334,6 +412,13 @@ object MuzikaPlayer {
                         // seconds would only churn the synced folder.
                         savePosition(handoff = false)
                     }
+                }
+                // Paused here: what the desktop moves on to has to reach the
+                // widget and the notification even with the app out of
+                // sight, which a check driven by the open app never did.
+                if (!isPlaying && !loading && ++followTicks >= FOLLOW_TICKS) {
+                    followTicks = 0
+                    followOtherDevice(announce = inFront)
                 }
                 kotlinx.coroutines.delay(500)
             }
@@ -381,16 +466,38 @@ object MuzikaPlayer {
      * recover. Starting it whenever playback begins is what keeps the process
      * alive for as long as there is sound.
      *
-     * It can only ever start the service, never promote one that is already
-     * running: from the background Android denies that outright. Staying in
-     * the foreground once there is what [queuedNext] is for.
+     * It is bound, not started as a foreground service. A foreground start
+     * gives the service five seconds to call startForeground, and Media3 only
+     * does that once sound is under way - so a stream that failed in those
+     * five seconds (YouTube answering 403, a dead network) got the app
+     * killed for not responding. Seen on Android 8 from the widget: tap play,
+     * 403, "Bringing down service while still waiting for start foreground",
+     * ANR. Binding is allowed from the background, keeps the session up for
+     * as long as the process lives, and leaves going foreground to Media3,
+     * which starts itself the moment it does. Staying in the foreground once
+     * there is what [queuedNext] is for.
      */
     private fun ensureService() {
-        if (!::context.isInitialized || PlaybackService.running) return
-        runCatching {
-            ContextCompat.startForegroundService(
-                context, Intent(context, PlaybackService::class.java))
+        if (!::context.isInitialized || PlaybackService.running || serviceBinding != null) return
+        val binding = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {}
+            override fun onServiceDisconnected(name: ComponentName?) {}
         }
+        val bound = runCatching {
+            context.bindService(
+                Intent(context, PlaybackService::class.java)
+                    .setAction(MediaSessionService.SERVICE_INTERFACE),
+                binding, Context.BIND_AUTO_CREATE,
+            )
+        }.getOrDefault(false)
+        if (bound) serviceBinding = binding
+    }
+
+    /** Let the service go: the app was swiped away with nothing playing. */
+    fun releaseService() {
+        val binding = serviceBinding ?: return
+        serviceBinding = null
+        runCatching { context.unbindService(binding) }
     }
 
     /**
@@ -451,18 +558,18 @@ object MuzikaPlayer {
     private fun mediaItem(track: Track, url: String): MediaItem = MediaItem.Builder()
         .setUri(url)
         .setMediaId(track.id)
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(track.title)
-                .setDisplayTitle(track.title)
-                .setArtist(track.artist)
-                .setAlbumTitle(track.album)
-                .setAlbumArtist(track.artist)
-                .setIsBrowsable(false)
-                .setIsPlayable(true)
-                .setArtworkUri(track.thumb?.let { android.net.Uri.parse(it) })
-                .build()
-        )
+        .setMediaMetadata(metadata(track))
+        .build()
+
+    private fun metadata(track: Track): MediaMetadata = MediaMetadata.Builder()
+        .setTitle(track.title)
+        .setDisplayTitle(track.title)
+        .setArtist(track.artist)
+        .setAlbumTitle(track.album)
+        .setAlbumArtist(track.artist)
+        .setIsBrowsable(false)
+        .setIsPlayable(true)
+        .setArtworkUri(track.thumb?.let { android.net.Uri.parse(it) })
         .build()
 
     /**
@@ -491,12 +598,11 @@ object MuzikaPlayer {
         dropQueuedNext()
         resolveToken++          // a resolve still in flight would start playback
         recovering = false
-        exo?.stop()
-        exo?.clearMediaItems()
         resumeAtMs = atMs.coerceAtLeast(0)
         positionMs = resumeAtMs
         retriedCurrent = false
         loading = false
+        cue()
         // Locally only: nothing happened that another device should hear of.
         savePosition(handoff = false)
         notifyWidget()
@@ -658,11 +764,27 @@ object MuzikaPlayer {
     /** Un-pause - or, for a track restored from an earlier run, fetch it and pick up where it was. */
     fun play() {
         followOtherDevice(announce = true)
+        notificationDismissed = false
         if (needsLoad) { loadCurrent(resumeAtMs); return }
         wantsPlay = true
         ensureService(); exo?.play()
     }
     fun pause() { wantsPlay = false; exo?.pause() }
+
+    /**
+     * The paused notification was swiped away, which Media3 delivers as stop.
+     *
+     * Passed straight to ExoPlayer, that left the track loaded but idle: the
+     * app went on showing it, and play then un-paused a player that had
+     * nothing prepared - silence. Parking keeps the song and the spot, so
+     * play resolves it afresh.
+     */
+    fun dismiss() {
+        wantsPlay = false
+        notificationDismissed = true
+        if (current != null) park(currentPosition())
+        else { exo?.stop(); exo?.clearMediaItems() }
+    }
 
     fun next(user: Boolean = true) {
         if (user && !isPlaying) followOtherDevice(announce = true)
@@ -685,7 +807,9 @@ object MuzikaPlayer {
     fun seekTo(ms: Long) {
         // Nothing loaded yet: remember the spot for when play is pressed.
         if (needsLoad) {
-            resumeAtMs = ms.coerceAtLeast(0); positionMs = resumeAtMs; savePosition(); return
+            resumeAtMs = ms.coerceAtLeast(0); positionMs = resumeAtMs; savePosition()
+            if (cued) exo?.seekTo(resumeAtMs)   // so the notification's bar moves too
+            return
         }
         exo?.seekTo(ms.coerceAtLeast(0))
     }
@@ -725,6 +849,7 @@ object MuzikaPlayer {
         val track = order.getOrNull(cursor)?.let { queue.getOrNull(it) } ?: return
         // Every load is meant to be heard - pausing before it arrives says otherwise.
         wantsPlay = true
+        notificationDismissed = false
         // Saved as the position while the stream resolves, so dying in that
         // second or two does not lose a restored spot.
         resumeAtMs = startAtMs

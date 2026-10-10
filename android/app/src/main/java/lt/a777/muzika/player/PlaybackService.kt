@@ -64,6 +64,7 @@ class PlaybackService : MediaSessionService() {
      *
      * Handling the event here sidesteps that bookkeeping entirely.
      */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private object ButtonCallback : MediaSession.Callback {
         override fun onMediaButtonEvent(
             session: MediaSession,
@@ -94,6 +95,8 @@ class PlaybackService : MediaSessionService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = session?.player
         if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
+            // The player's own binding would otherwise keep it alive.
+            MuzikaPlayer.releaseService()
             stopSelf()
             return
         }

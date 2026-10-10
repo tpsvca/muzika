@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import lt.a777.muzika.R
 import lt.a777.muzika.data.Store
+import lt.a777.muzika.player.HandoffJob
 import lt.a777.muzika.player.MuzikaPlayer
 import lt.a777.muzika.ui.MainActivity
 
@@ -36,7 +37,17 @@ class NowPlayingWidget : AppWidgetProvider() {
         context: Context,
         manager: AppWidgetManager,
         ids: IntArray,
-    ) = render(context, manager, ids)
+    ) {
+        render(context, manager, ids)
+        // Also how the jobs come back after a reboot, which drops them.
+        HandoffJob.schedule(context)
+    }
+
+    /** The first widget placed: keep it current while the app is not running. */
+    override fun onEnabled(context: Context) = HandoffJob.schedule(context)
+
+    /** The last one removed: nothing left to keep current. */
+    override fun onDisabled(context: Context) = HandoffJob.cancel(context)
 
     /**
      * Resizing is when the playlist row becomes possible, or stops being so.

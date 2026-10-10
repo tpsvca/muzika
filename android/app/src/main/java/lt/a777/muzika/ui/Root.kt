@@ -128,17 +128,11 @@ fun MuzikaRoot() {
     val context = LocalContext.current
     LifecycleResumeEffect(Unit) {
         // Coming back to the app after listening on the desktop: show what
-        // play will continue, rather than what this phone last played.
+        // play will continue, rather than what this phone last played. While
+        // it stays open the player keeps looking every few seconds by itself,
+        // and says so in a toast only now that there is someone to see it.
+        MuzikaPlayer.inFront = true
         MuzikaPlayer.followOtherDevice(announce = true)
-        // And while it stays open: a pause on the desktop should appear here
-        // when the sync client delivers it, not at the next press of play.
-        // Costs a stat call per round; the file is only read when it changed.
-        val handoffPoll = scope.launch {
-            while (true) {
-                kotlinx.coroutines.delay(4_000)
-                MuzikaPlayer.followOtherDevice(announce = true)
-            }
-        }
         if (Prefs.autoSync) {
             SyncWatcher.start {
                 scope.launch {
@@ -153,7 +147,7 @@ fun MuzikaRoot() {
             }
             SyncWatcher.check()
         }
-        onPauseOrDispose { handoffPoll.cancel(); SyncWatcher.stop() }
+        onPauseOrDispose { MuzikaPlayer.inFront = false; SyncWatcher.stop() }
     }
 
     // Launcher shortcuts: act once, then forget, so rotating does not replay it.

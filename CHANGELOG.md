@@ -1,3 +1,44 @@
+## 2026-10-10 — The widget and the shade follow the desktop with the app closed (v1.14.4)
+
+### Fixed
+- **What**: with Muzika paused on the phone and the desktop playing on, the home-screen widget and the media card in the shade now switch to the desktop's song while the app is closed or in the background. Before, they stayed on the phone's last song ("Rusty Cage") until the app was opened.
+- **Why**: reported with screenshots. Only the open app ever looked at `muzika-nowplaying.json`: its 4-second check lived in the app's screen, and the widget read the file only when it redrew.
+- **What**: the shade's media card shows the song play will continue, including one taken over from the desktop or restored after a restart. Media3 hides the card whenever the player is empty, and taking over a session emptied it. A silent stand-in the length of the track now sits paused at the right spot. It carries the title, artist and artwork, costs no network, and play still fetches the real stream first.
+- **What**: swiping the paused card away no longer leaves the track loaded but idle, which made the next play silent. The card also stays dismissed when the desktop moves on, until something is played on the phone.
+- **What**: Android 8–12 could not play YouTube at all; the app crashed on the first stream (`NoSuchMethodError: URLDecoder.decode(String, Charset)` inside NewPipeExtractor; that method exists only from Android 13). Desugaring now uses `desugar_jdk_libs_nio`, as NewPipe itself does.
+- **Why**: found by the emulator tests below on Android 11.
+- **What**: Android 8–10 could not read or write the sync folder: the storage permissions were never asked for, and writing was not even declared. Every save failed with "Permission denied". The app now asks on launch. On Android 10 it also opts into legacy storage.
+- **Why**: found by the emulator tests on Android 8.0 and 9.
+- **What**: pressing play on the widget no longer gets the app killed when the stream fails in the first seconds. The playback service used to be started as a foreground service before the stream had even loaded. Android gives such a service 5 s to go foreground, and Media3 only does that once sound plays. A YouTube 403 in that window ended in "Bringing down service while still waiting for start foreground" and an ANR. The service is now bound instead, and Media3 goes foreground by itself when sound starts.
+- **Why**: hit on the Android 8.0 emulator during these tests.
+
+### Added
+- **Player**: while paused, it checks the handoff file every 4 s for as long as its process is alive, app open or not. A "Picked up … from …" toast appears only while the app is on screen.
+- **`HandoffJob`**: wakes the app when the handoff file changes while it is not running. One job listens to MediaStore, which from Android 11 sees every file Syncthing renames into place; a 15-minute periodic job covers older versions. Both are scheduled only while a widget is placed.
+- **`android/tools/emulator-tests/`**: scripts that boot emulators, place the widget through the launcher and run the handoff scenarios (see its README).
+
+### Changed
+- Media3 "unstable API" uses are marked as opted in, so `lintDebug` reports no errors (it reported 19 before). Warnings are unchanged at 31.
+- Desktop: no behaviour change. The version is 1.14.4 so it matches the tag.
+
+### Tests
+- **Emulators, one per Android version: 8.0, 9, 11, 12, 13, 14, 15, 16** (API 26, 28, 30, 31, 33, 34, 35, 36):
+  - every check passed on every version (T1–T6, final build on 8.0, 9, 11, 12, 14 and 16)
+  - widget play with the process killed reached the foreground with no ANR (8.0, 9, 12, 14, 16)
+  - with the network cut mid-start (8.0, 9), there was no ANR
+  - moving on to the next track while playing in the background stayed in the foreground (14)
+  - **Results**:
+    - 8.0 and 9 failed T6 (Permission denied) until the permission fix
+    - 11 crashed in T5 until the desugaring fix
+    - on 9, the widget missed a full-run check twice, each time right after the harness had opened the app; 0 misses in 10 repeats in a row
+- **Android unit tests:** 73, all passing. 4 new tests in `HandoffJobTest`:
+  - no jobs without a widget
+  - both jobs with one
+  - none with Dropbox
+  - a fresh process's widget redraw shows the desktop's song
+- **Desktop suite:** 93 passed.
+- `TopPlaylistsTest` "newest first" failed in 2 of 4 runs, as before; it is unrelated (two playlists created in the same instant).
+
 ## 2026-10-10 — Desktop Settings: Syncthing status, no Dropbox help in folder mode
 
 ### Fixed
