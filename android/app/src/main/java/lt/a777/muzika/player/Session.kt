@@ -84,13 +84,20 @@ object Session {
         }
     }
 
+    /** Runs [block] on the session's writer thread, after anything already queued. */
+    internal fun enqueue(block: () -> Unit) { writer.execute(block) }
+
     /** Blocks until everything asked for so far is on disk. Tests only. */
     internal fun flush() { writer.submit {}.get() }
 
-    /** Written beside the target and renamed over it, so a kill mid-write leaves the old file. */
-    private fun writeAtomically(target: File, text: String) {
+    /**
+     * Written beside the target and renamed over it, so a kill mid-write leaves
+     * the old file. The temporary name is one Syncthing ignores by default,
+     * which matters for the handoff file: it lives in a synced folder.
+     */
+    internal fun writeAtomically(target: File, text: String) {
         try {
-            val temp = File(target.parentFile, target.name + ".tmp")
+            val temp = File(target.parentFile, ".syncthing.${target.name}.tmp")
             temp.writeText(text)
             if (!temp.renameTo(target)) {
                 target.delete()
@@ -183,7 +190,7 @@ object Session {
     }
 
     // Every field, unlike the sync format: this copy has to play, not just list.
-    private fun trackJson(track: Track): JSONObject = JSONObject()
+    internal fun trackJson(track: Track): JSONObject = JSONObject()
         .put("id", track.id)
         .put("title", track.title)
         .put("artist", track.artist)
@@ -194,7 +201,7 @@ object Session {
         .put("album", track.album ?: JSONObject.NULL)
         .put("trackNumber", track.trackNumber)
 
-    private fun trackFrom(entry: JSONObject): Track = Track(
+    internal fun trackFrom(entry: JSONObject): Track = Track(
         id = entry.getString("id"),
         title = entry.optString("title"),
         artist = entry.optString("artist"),

@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import logging
 import random
+import time
 
 import gi
 
 gi.require_version("Gst", "1.0")
 from gi.repository import GLib, GObject, Gst  # noqa: E402
 
-from . import tasks  # noqa: E402
+from . import session, tasks  # noqa: E402
 
 log = logging.getLogger(__name__)
 
 REPEAT_NONE, REPEAT_ALL, REPEAT_ONE = "none", "all", "one"
+
+#: A pause, a skip and a resume in quick succession write the handoff file once.
+HANDOFF_SETTLE_MS = 1500
 
 
 class Player(GObject.Object):
@@ -31,6 +35,8 @@ class Player(GObject.Object):
         "position-changed": (GObject.SignalFlags.RUN_FIRST, None, (GObject.TYPE_INT64, GObject.TYPE_INT64)),
         "queue-changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
         "playback-error": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+        # Worth saying, not an error: "Picked up … from Pixel 7 Pro".
+        "notice": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
     }
 
     def __init__(self, api, store) -> None:
@@ -59,6 +65,7 @@ class Player(GObject.Object):
         bus.connect("message::eos", lambda *_: self.next(user=False))
         bus.connect("message::error", self._on_bus_error)
         bus.connect("message::buffering", self._on_buffering)
+        bus.connect("message::async-done", self._on_async_done)
 
         self._queue: list[dict] = []
         self._order: list[int] = []
@@ -79,7 +86,25 @@ class Player(GObject.Object):
         self._source: str | None = None
         self.autoplay_radio = True
 
+        # Whether the current track is actually in the pipeline. A restored
+        # track is shown but not loaded - that would mean resolving a stream
+        # nobody asked for yet - so play has to load it first.
+        self._loaded = False
+        # Where a restored track starts, in nanoseconds, until it is loaded.
+        self._resume_ns = 0
+        # A seek waiting for the pipeline to preroll; playback starts after it.
+        self._pending_seek_ns: int | None = None
+        # When this machine's own playback last changed. Another device's
+        # session is taken over only when it is newer - see follow_other_device.
+        self._local_changed_at = 0.0
+        # Which remote session was last taken over, so it is never taken twice
+        # even if the other device's clock runs ahead of this one.
+        self._adopted_remote: str | None = None
+        self._handoff_source = 0
+        self._save_ticks = 0
+
         GLib.timeout_add(500, self._tick)
+        self._restore()
 
     # ------------------------------------------------------------- properties
 
@@ -124,6 +149,7 @@ class Player(GObject.Object):
         if current_index is not None:
             self._cursor = self._order.index(current_index)
         self.emit("queue-changed")
+        self._save_queue()
 
     @property
     def repeat(self) -> str:
@@ -133,6 +159,7 @@ class Player(GObject.Object):
     def repeat(self, mode: str) -> None:
         self._repeat = mode
         self.emit("state-changed")
+        self._save_position()
 
     @property
     def volume(self) -> float:
@@ -176,6 +203,7 @@ class Player(GObject.Object):
         else:
             self._cursor = start if (start is not None and 0 <= start < len(tracks)) else 0
         self.emit("queue-changed")
+        self._save_queue()
         self._load_current()
 
     def append(self, tracks: list[dict]) -> None:
@@ -189,6 +217,7 @@ class Player(GObject.Object):
             random.shuffle(new_indices)
         self._order.extend(new_indices)
         self.emit("queue-changed")
+        self._save_queue()
         if self._cursor < 0:
             self._cursor = 0
             self._load_current()
@@ -200,6 +229,7 @@ class Player(GObject.Object):
         self._queue.append(track)
         self._order.insert(self._cursor + 1, len(self._queue) - 1)
         self.emit("queue-changed")
+        self._save_queue()
 
     def remove_at(self, position: int) -> None:
         if not 0 <= position < len(self._order):
@@ -211,11 +241,15 @@ class Player(GObject.Object):
             self._cursor -= 1
             self.next(user=True)
         self.emit("queue-changed")
+        self._save_queue()
 
     def clear(self) -> None:
         self._intended_playing = False
         self._bin.set_state(Gst.State.NULL)
         self._queue, self._order, self._cursor = [], [], -1
+        self._loaded = False
+        self._resume_ns = 0
+        session.clear_local()
         self.emit("queue-changed")
         self.emit("track-changed")
         self.emit("state-changed")
@@ -228,16 +262,25 @@ class Player(GObject.Object):
     # -------------------------------------------------------------- transport
 
     def play(self) -> None:
+        self.follow_other_device(announce=True)
         if self.current is None:
+            return
+        if not self._loaded:
+            # Restored, or taken over from another device: fetch the stream
+            # and pick up where it was.
+            self._load_current(start_ns=self._resume_ns)
             return
         self._intended_playing = True
         self._bin.set_state(Gst.State.PLAYING)
         self.emit("state-changed")
+        self._save_position()
 
     def pause(self) -> None:
         self._intended_playing = False
-        self._bin.set_state(Gst.State.PAUSED)
+        if self._loaded:
+            self._bin.set_state(Gst.State.PAUSED)
         self.emit("state-changed")
+        self._save_position()
 
     def toggle(self) -> None:
         self.pause() if self.playing else self.play()
@@ -248,6 +291,8 @@ class Player(GObject.Object):
         self.emit("state-changed")
 
     def next(self, user: bool = True) -> None:
+        if user and not self.playing:
+            self.follow_other_device(announce=True)
         if not self._order:
             return
         if self._repeat == REPEAT_ONE and not user:
@@ -268,6 +313,8 @@ class Player(GObject.Object):
         self.stop()
 
     def previous(self) -> None:
+        if not self.playing:
+            self.follow_other_device(announce=True)
         # Restart the track first, like every other music player.
         position, _ = self.position_duration()
         if position > 5 * Gst.SECOND:
@@ -280,12 +327,18 @@ class Player(GObject.Object):
             self.seek(0)
 
     def seek(self, nanoseconds: int) -> None:
+        if not self._loaded:
+            # Nothing in the pipeline yet: remember the spot for play.
+            self._resume_ns = max(0, int(nanoseconds))
+            self._save_position()
+            return
         # ACCURATE rather than KEY_UNIT: keyframe snapping can land several
         # seconds from where the user clicked, and for audio the extra cost
         # of an exact seek is negligible.
         self._bin.seek_simple(Gst.Format.TIME,
                               Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE,
                               max(0, int(nanoseconds)))
+        self._save_position()
 
     def seek_fraction(self, fraction: float) -> None:
         _, duration = self.position_duration()
@@ -293,6 +346,13 @@ class Player(GObject.Object):
             self.seek(int(duration * max(0.0, min(1.0, fraction))))
 
     def position_duration(self) -> tuple[int, int]:
+        if not self._loaded:
+            track = self.current
+            length = int(track.get("duration") or 0) * Gst.SECOND if track else 0
+            return self._resume_ns, length
+        if self._pending_seek_ns is not None:
+            ok_dur, duration = self._bin.query_duration(Gst.Format.TIME)
+            return self._pending_seek_ns, (duration if ok_dur else 0)
         ok_pos, position = self._bin.query_position(Gst.Format.TIME)
         ok_dur, duration = self._bin.query_duration(Gst.Format.TIME)
         return (position if ok_pos else 0), (duration if ok_dur else 0)
@@ -309,16 +369,22 @@ class Player(GObject.Object):
         tasks.run_async(lambda: self._api.prefetch(track), lambda _r: None,
                         lambda _e: None)
 
-    def _load_current(self) -> None:
+    def _load_current(self, start_ns: int = 0) -> None:
         track = self.current
         if track is None:
             return
+        # Kept as the position while the stream resolves, so dying in that
+        # second or two does not lose a restored spot.
+        self._resume_ns = max(0, int(start_ns))
+        self._loaded = False
+        self._pending_seek_ns = None
         self._loading = True
         self._resolve_token += 1
         token = self._resolve_token
         self._bin.set_state(Gst.State.NULL)
         self.emit("track-changed")
         self.emit("state-changed")
+        self._save_position()
 
         video_id = track["id"]
 
@@ -334,9 +400,19 @@ class Player(GObject.Object):
             self._headers = headers
             self._loading = False
             self._intended_playing = True
+            self._loaded = True
             self._bin.set_property("uri", url)
-            self._bin.set_state(Gst.State.PLAYING)
+            if self._resume_ns > 0:
+                # A pipeline cannot seek before it has prerolled: pause it,
+                # seek once it is ready, and only then let it play - so the
+                # start of the song is never heard on the way.
+                self._pending_seek_ns = self._resume_ns
+                self._bin.set_state(Gst.State.PAUSED)
+            else:
+                self._bin.set_state(Gst.State.PLAYING)
+            self._resume_ns = 0
             self.emit("state-changed")
+            self._save_position()
             tasks.run_async(lambda: self._store.record_play(track))
             self._prefetch_next()
 
@@ -416,8 +492,21 @@ class Player(GObject.Object):
         percent = message.parse_buffering()
         if percent < 100:
             self._bin.set_state(Gst.State.PAUSED)
-        elif self.current is not None and self._intended_playing:
+        elif (self.current is not None and self._intended_playing
+              and self._pending_seek_ns is None):
             self._bin.set_state(Gst.State.PLAYING)
+
+    def _on_async_done(self, _bus, _message) -> None:
+        target = self._pending_seek_ns
+        if target is None:
+            return
+        self._pending_seek_ns = None
+        self._bin.seek_simple(Gst.Format.TIME,
+                              Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE, target)
+        if self._intended_playing:
+            self._bin.set_state(Gst.State.PLAYING)
+        # The handoff write was held back while this was pending.
+        self._save_position()
 
     def _tick(self) -> bool:
         if self.current is not None:
@@ -428,4 +517,123 @@ class Player(GObject.Object):
             if position > 3 * Gst.SECOND and self._retried_track is not None:
                 self._retried_track = None
             self.emit("position-changed", position, duration)
+            # Every ten seconds while playing, so a crash resumes close to
+            # where it was. Local only: other devices work the position out
+            # from when the track started.
+            self._save_ticks += 1
+            if self.playing and self._save_ticks >= 20:
+                self._save_ticks = 0
+                self._save_position(handoff=False)
         return True
+
+    # ------------------------------------------------------------ persistence
+
+    def _restore(self) -> None:
+        """Pick up what was playing before the app was closed - or, if another
+        device has played since, what it was playing."""
+        saved = session.load_local()
+        if saved is not None:
+            self._apply(saved)
+        self.follow_other_device()
+
+    def _apply(self, saved: dict) -> None:
+        """Take on a saved session, paused, with nothing loaded until play."""
+        self._resolve_token += 1        # a resolve in flight belongs to the old queue
+        self._bin.set_state(Gst.State.NULL)
+        self._intended_playing = False
+        self._loading = False
+        self._loaded = False
+        self._pending_seek_ns = None
+        self._queue = list(saved["queue"])
+        self._order = list(saved["order"])
+        self._cursor = saved["cursor"]
+        self._shuffle = saved["shuffle"]
+        self._repeat = saved["repeat"]
+        self._source = None
+        self._resume_ns = int(saved["position_ms"]) * Gst.MSECOND
+        self._local_changed_at = saved["saved_at"]
+        self.emit("queue-changed")
+        self.emit("track-changed")
+        self.emit("state-changed")
+
+    def follow_other_device(self, announce: bool = False) -> bool:
+        """Take over another device's session when it is newer than anything
+        done here: pause on the phone, press play here, and it carries on with
+        the same song, spot and shuffled order.
+
+        Never while playing - that is this machine's own, newer session. Asked
+        before play, skip and back act, and when the window comes to the front,
+        so what is shown is what play will do.
+        """
+        if self.playing or self._loading:
+            return False
+        remote = session.newer_than(self._local_changed_at)
+        if remote is None:
+            return False
+        stamp = f"{remote['device_id']}@{remote['saved_at']}"
+        if stamp == self._adopted_remote:
+            return False
+        self._adopted_remote = stamp
+        self._apply(remote)
+        # Kept locally, but not written back to the handoff file: nothing has
+        # happened here yet, and claiming the session would only bounce it.
+        self._save_queue(handoff=False)
+        self._save_position(handoff=False)
+        if announce and self.current:
+            self.emit("notice", f"Picked up “{self.current.get('title', '')}” "
+                                f"from {remote['device']}")
+        return True
+
+    def _position_ms(self) -> tuple[int, int]:
+        position, duration = self.position_duration()
+        return position // Gst.MSECOND, duration // Gst.MSECOND
+
+    def _save_queue(self, handoff: bool = True) -> None:
+        self._local_changed_at = time.time()
+        session.save_queue(self._queue, list(self._order), self._shuffle)
+        if handoff:
+            self._schedule_handoff()
+
+    def _save_position(self, handoff: bool = True) -> None:
+        if not self._queue:
+            return
+        self._local_changed_at = time.time()
+        position, duration = self._position_ms()
+        session.save_position(self.current, self._cursor, position, duration, self._repeat)
+        if handoff:
+            self._schedule_handoff()
+
+    def _schedule_handoff(self) -> None:
+        if self._handoff_source:
+            GLib.source_remove(self._handoff_source)
+        self._handoff_source = GLib.timeout_add(HANDOFF_SETTLE_MS, self._publish_handoff)
+
+    def _publish_handoff(self) -> bool:
+        """Tell the other devices what is playing. Skipped while a stream is
+        still resolving: the pipeline is then still on the previous track, and
+        its position would be written against the new one. Sound starting
+        fires this again with the right numbers."""
+        self._handoff_source = 0
+        if not self._queue or self._loading or self._pending_seek_ns is not None:
+            return False
+        position, duration = self._position_ms()
+        session.publish(self._queue, list(self._order), self._cursor, self._shuffle,
+                        self._repeat, position, duration, self.playing)
+        return False
+
+    def save_now(self) -> None:
+        """On quit: the exact spot, locally and for the other devices, now -
+        a timer still pending would never fire."""
+        if self._handoff_source:
+            GLib.source_remove(self._handoff_source)
+            self._handoff_source = 0
+        if not self._queue:
+            return
+        self._intended_playing = False
+        self._save_position(handoff=False)
+        if self._handoff_source:
+            GLib.source_remove(self._handoff_source)
+            self._handoff_source = 0
+        position, duration = self._position_ms()
+        session.publish(self._queue, list(self._order), self._cursor, self._shuffle,
+                        self._repeat, position, duration, False)

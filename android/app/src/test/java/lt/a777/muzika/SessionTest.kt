@@ -139,6 +139,7 @@ class SessionTest {
         Session.savePosition(queue[0], 3, 42_000, 200_000, REPEAT_ALL)
         Session.flush()
 
+        MuzikaPlayer.resetForTest()
         MuzikaPlayer.restore(ApplicationProvider.getApplicationContext())
 
         assertEquals("v0", MuzikaPlayer.current?.id)

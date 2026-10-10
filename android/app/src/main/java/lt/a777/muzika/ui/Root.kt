@@ -127,6 +127,9 @@ fun MuzikaRoot() {
     // app is in the background, and the check on resume covers that gap.
     val context = LocalContext.current
     LifecycleResumeEffect(Unit) {
+        // Coming back to the app after listening on the desktop: show what
+        // play will continue, rather than what this phone last played.
+        MuzikaPlayer.followOtherDevice(announce = true)
         if (Prefs.autoSync) {
             SyncWatcher.start {
                 scope.launch {
@@ -163,6 +166,9 @@ fun MuzikaRoot() {
         }
     }
 
+    MuzikaPlayer.notice?.let { message ->
+        LaunchedEffect(message) { toast(message); MuzikaPlayer.notice = null }
+    }
     MuzikaPlayer.errorText?.let { message ->
         LaunchedEffect(message) { toast(message); MuzikaPlayer.errorText = null }
     }

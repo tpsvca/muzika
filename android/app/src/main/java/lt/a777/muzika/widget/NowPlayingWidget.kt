@@ -110,6 +110,9 @@ class NowPlayingWidget : AppWidgetProvider() {
      */
     private fun withPlayer(context: Context, action: () -> Unit) {
         MuzikaPlayer.attach(context.applicationContext)
+        // Taken over before the check, so a phone that has never played
+        // anything still picks up what the desktop was playing.
+        MuzikaPlayer.followOtherDevice()
         if (MuzikaPlayer.current == null) return openApp(context)
         action()
         if (!MuzikaPlayer.loading) return
@@ -218,6 +221,9 @@ class NowPlayingWidget : AppWidgetProvider() {
             // After a reboot or a reaped process, show the saved track rather
             // than "Nothing playing" - it is what play will resume.
             MuzikaPlayer.restore(context)
+            // Paused here and played since on another device: show that, as
+            // it is what play will now continue.
+            if (!MuzikaPlayer.isPlaying) MuzikaPlayer.followOtherDevice()
             val track = MuzikaPlayer.current
             val views = RemoteViews(context.packageName, R.layout.widget_now_playing)
 

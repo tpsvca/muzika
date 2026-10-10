@@ -28,6 +28,9 @@ import lt.a777.muzika.widget.NowPlayingWidget
 /** How long a track may fail to advance before it is treated as stalled. */
 private const val STALL_TIMEOUT_MS = 12_000L
 
+/** A pause, a skip and a resume in quick succession write the handoff file once. */
+private const val HANDOFF_SETTLE_MS = 1_500L
+
 const val REPEAT_NONE = 0
 const val REPEAT_ALL = 1
 const val REPEAT_ONE = 2
@@ -88,6 +91,20 @@ object MuzikaPlayer {
      * yet - so the position waits here until play is pressed.
      */
     private var resumeAtMs = 0L
+    /**
+     * When this device's own playback last changed. Another device's session
+     * is taken over only when it is newer than this - see [followOtherDevice].
+     */
+    private var localChangedAt = 0L
+    /**
+     * Which remote session was last taken over, so it is never taken twice.
+     * The timestamp comparison alone is not enough: with the other device's
+     * clock running ahead, its session stays "newer" than anything done here,
+     * and every widget redraw would take it over again from the top.
+     */
+    private var adoptedRemote: String? = null
+    /** The pending write of the handoff file, so a burst of changes writes once. */
+    private var handoffJob: kotlinx.coroutines.Job? = null
 
     // Observed by Compose
     var current by mutableStateOf<Track?>(null)
@@ -105,6 +122,8 @@ object MuzikaPlayer {
     var durationMs by mutableStateOf(0L)
         private set
     var errorText by mutableStateOf<String?>(null)
+    /** Something worth saying that is not an error - shown once, then cleared. */
+    var notice by mutableStateOf<String?>(null)
     var queueView by mutableStateOf<List<Track>>(emptyList())
         private set
     var queueIndex by mutableIntStateOf(-1)
@@ -139,7 +158,20 @@ object MuzikaPlayer {
         restored = true
         Session.open(context)
         if (queue.isNotEmpty()) return
-        val saved = Session.load() ?: return
+        Session.load()?.let { applySnapshot(it) }
+        // Whatever this device last did, another may have played since.
+        followOtherDevice()
+    }
+
+    /** Back to a fresh process, for tests that share this singleton. */
+    internal fun resetForTest() {
+        restored = false; adoptedRemote = null; localChangedAt = 0L
+        queue = emptyList(); order = mutableListOf(); cursor = -1
+        current = null; source = null; notice = null; resumeAtMs = 0
+    }
+
+    /** Takes on a saved session, paused, with nothing loaded until play. */
+    private fun applySnapshot(saved: Session.Snapshot) {
         queue = saved.queue
         order = saved.order.toMutableList()
         cursor = saved.cursor
@@ -152,6 +184,42 @@ object MuzikaPlayer {
         queueView = order.mapNotNull { queue.getOrNull(it) }
         queueIndex = cursor
         current = order.getOrNull(cursor)?.let { queue.getOrNull(it) }
+        localChangedAt = saved.savedAt
+    }
+
+    /**
+     * Take over another device's session when it is newer than anything done
+     * here: pause on the desktop, press play on the phone, and the phone
+     * carries on with the same song, spot and shuffled order.
+     *
+     * Never while this device is playing - that is its own, newer session.
+     * Asked before play, skip and back act, when the app comes to the front,
+     * and when the widget redraws, so what is shown is what play will do.
+     *
+     * Returns whether it took anything over.
+     */
+    fun followOtherDevice(announce: Boolean = false): Boolean {
+        if (!::context.isInitialized || isPlaying || loading) return false
+        val remote = Handoff.newerThan(localChangedAt) ?: return false
+        val stamp = "${remote.deviceId}@${remote.snapshot.savedAt}"
+        if (stamp == adoptedRemote) return false
+        adoptedRemote = stamp
+        dropQueuedNext()
+        resolveToken++          // a resolve still in flight belongs to the old queue
+        exo?.stop()
+        exo?.clearMediaItems()
+        applySnapshot(remote.snapshot)
+        exo?.repeatMode =
+            if (repeat == REPEAT_ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        // Kept locally, but not written back to the handoff file: nothing has
+        // happened here yet, and claiming the session would only bounce it.
+        saveQueue(handoff = false)
+        savePosition(handoff = false)
+        notifyWidget()
+        if (announce) {
+            notice = "Picked up \u201c${current?.title.orEmpty()}\u201d from ${remote.device}"
+        }
+        return true
     }
 
     fun attach(appContext: Context) {
@@ -248,7 +316,10 @@ object MuzikaPlayer {
                     // mid-song resumes close to where it was.
                     if (isPlaying && ++saveTicks >= 20) {
                         saveTicks = 0
-                        savePosition()
+                        // Local only: other devices work out the position
+                        // from when the track started, so a write every ten
+                        // seconds would only churn the synced folder.
+                        savePosition(handoff = false)
                     }
                 }
                 kotlinx.coroutines.delay(500)
@@ -479,16 +550,39 @@ object MuzikaPlayer {
     }
 
     /** The queue and its order - only when they change, since they can be large. */
-    private fun saveQueue() {
+    private fun saveQueue(handoff: Boolean = true) {
         if (!::context.isInitialized) return
+        localChangedAt = System.currentTimeMillis()
         Session.saveQueue(queue, order.toList(), shuffle, source)
+        if (handoff) scheduleHandoff()
     }
 
     /** Which track and how far into it; cheap, so it is saved often. */
-    private fun savePosition() {
+    private fun savePosition(handoff: Boolean = true) {
         if (!::context.isInitialized || queue.isEmpty()) return
-        val position = if (needsLoad) resumeAtMs else exo?.currentPosition ?: positionMs
-        Session.savePosition(current, cursor, position.coerceAtLeast(0), durationMs, repeat)
+        localChangedAt = System.currentTimeMillis()
+        Session.savePosition(current, cursor, currentPosition(), durationMs, repeat)
+        if (handoff) scheduleHandoff()
+    }
+
+    private fun currentPosition(): Long =
+        (if (needsLoad) resumeAtMs else exo?.currentPosition ?: positionMs).coerceAtLeast(0)
+
+    /**
+     * Tell the other devices what is playing, a moment after it settles.
+     *
+     * Skipped while a stream is still resolving: the player is then still on
+     * the previous track, and its position would be written against the new
+     * one. Sound starting fires this again with the right numbers.
+     */
+    private fun scheduleHandoff() {
+        handoffJob?.cancel()
+        handoffJob = scope.launch {
+            kotlinx.coroutines.delay(HANDOFF_SETTLE_MS)
+            if (queue.isEmpty() || loading) return@launch
+            Handoff.publish(queue, order.toList(), cursor, shuffle, repeat,
+                currentPosition(), durationMs, playing = isPlaying)
+        }
     }
 
     /** Keeps the home-screen widget in step with whatever is playing. */
@@ -505,12 +599,14 @@ object MuzikaPlayer {
 
     /** Un-pause - or, for a track restored from an earlier run, fetch it and pick up where it was. */
     fun play() {
+        followOtherDevice(announce = true)
         if (needsLoad) { loadCurrent(resumeAtMs); return }
         ensureService(); exo?.play()
     }
     fun pause() { exo?.pause() }
 
     fun next(user: Boolean = true) {
+        if (user && !isPlaying) followOtherDevice(announce = true)
         if (order.isEmpty()) return
         if (repeat == REPEAT_ONE && !user) { exo?.seekTo(0); exo?.play(); return }
         when {
@@ -521,6 +617,7 @@ object MuzikaPlayer {
     }
 
     fun previous() {
+        if (!isPlaying) followOtherDevice(announce = true)
         if (needsLoad && resumeAtMs > 5000) { loadCurrent(); return }
         if ((exo?.currentPosition ?: 0) > 5000) { exo?.seekTo(0); return }
         if (cursor > 0) { cursor--; loadCurrent() } else exo?.seekTo(0)

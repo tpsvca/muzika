@@ -76,6 +76,10 @@ class MuzikaWindow(Adw.ApplicationWindow):
                        "search": self._search, "library": self._library}
 
         self.player.connect("playback-error", lambda _p, message: self.toast(message))
+        self.player.connect("notice", lambda _p, message: self.toast(message))
+        # Back at the desk after listening on the phone: show what play will
+        # continue, rather than what this machine last played.
+        self.connect("notify::is-active", self._on_active_changed)
         self.player.connect("track-changed", lambda *_: self._sync_song_rows())
         self.player.connect("track-changed", lambda *_: self._on_track_changed())
         self.player.connect("queue-changed", lambda *_: self.refresh_sidebar())
@@ -327,6 +331,10 @@ class MuzikaWindow(Adw.ApplicationWindow):
         header.pack_start(button)
 
     # ------------------------------------------------------- context protocol
+
+    def _on_active_changed(self, *_args) -> None:
+        if self.is_active():
+            self.player.follow_other_device(announce=True)
 
     def toast(self, message: str) -> None:
         self._toasts.add_toast(Adw.Toast.new(message))

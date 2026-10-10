@@ -1,3 +1,42 @@
+## 2026-10-10 — Carry what's playing between the desktop and the phone (v1.14.0)
+
+### Added
+- **What**: pause on the desktop, press play on the phone (app, widget or mini player), and the phone carries on with the same song, from the same spot, in the same shuffled order. It works the other way round too. Play takes over the other device's session automatically whenever that session is the newer one.
+- **Why**: requested. The choice was automatic takeover rather than a separate "Continue from…" button.
+
+**How.** A new file, `muzika-nowplaying.json`, sits beside the library file in the synced folder. The format is in `docs/sync-format.md` under "What is playing".
+
+- **Writing.** Each device writes the file when its own playback changes: a track starts, play or pause, a seek, or a queue, shuffle or repeat change. Writes settle for 1.5 s and are skipped while a stream is resolving. There's no timer: while the writer is playing, a reader works the position out from when the file was written, walking through the shuffled order by track length. Each device also writes the file when it quits.
+- **Takeover.** It happens on play, skip or back while not playing, when the window or app comes to the front, and when the widget redraws. The other device's session is taken over if it is newer than this device's last change. It arrives paused, with a toast: "Picked up "Mine" from Pixel 7 Pro".
+- **Separate from the library file**, because it changes at every track. Inside the library file it would keep rewriting that file and cause sync conflicts.
+
+**Guards.**
+- A device never takes over its own write. Each install has a random `device_id`.
+- The same remote session is never taken over twice. Without this, an other-device clock running ahead keeps that session "newer" forever, and every widget redraw would take it over again from the top. The Android tests caught this.
+- A writer killed mid-song is wound forward for at most two hours.
+
+**Desktop: restart survival.** The desktop had no saved state at all, so closing the window lost the queue. It now keeps the queue, shuffle order, track, position and repeat in `~/.local/share/muzika/session-*.json`, like the phone does since v1.13.0. A restored track resumes at its position without the start being heard: the pipeline prerolls paused, seeks once prerolled, and only then plays.
+
+**Limits.**
+- **Speed.** A pause reaches the other device as fast as Syncthing carries the file.
+- **No remote control.** Starting on the phone does not pause the desktop.
+- **Folder backend only.** Dropbox sync has no folder for this file.
+
+### Tests
+- Android `HandoffTest`, 10 cases:
+  - the format both ways
+  - winding forward across tracks and with repeat
+  - the two-hour cap
+  - only newer, only other devices
+  - no folder means no file
+  - the player takes a session over once, even with a clock running ahead
+- Desktop `test_session_handoff.py`, 14 cases. Pure ones pin the format, including a literal copy of what Android writes. Three run a real GStreamer pipeline over a generated WAV:
+  - reopening resumes at the saved spot and never plays from the top on the way
+  - play takes over the phone's newer session and announces it
+  - playing here writes the file, pause marks it stopped, and quitting writes at once
+- Android full suite: 61 tests, all passing. `InnertubeTest` (live API) and `TopPlaylistsTest` each failed once and then passed twice on rerun, so both are flaky. `TopPlaylistsTest` creates two playlists within the same millisecond, an existing test problem.
+- Desktop full suite: 83 passed, three runs. `ruff --select E9,F63,F7,F82` is clean.
+
 ## 2026-10-10 — Play on the widget resumes yesterday's song instead of opening Home
 
 ### Fixed

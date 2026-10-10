@@ -60,6 +60,8 @@ class MuzikaApp(Adw.Application):
         self._window.present()
 
     def do_shutdown(self) -> None:
+        # Before stopping: stopped, the pipeline no longer knows the position.
+        self.player.save_now()
         self.player.stop()
         if self._mpris is not None:
             self._mpris.shutdown()

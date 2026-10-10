@@ -46,7 +46,22 @@ object Prefs {
         autoSync = prefs.getBoolean("auto_sync", true)
         sourceSoundCloud = prefs.getBoolean("src_soundcloud", true)
         sourceBandcamp = prefs.getBoolean("src_bandcamp", true)
+        deviceId = prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString()
+            .also { prefs.edit().putString("device_id", it).apply() }
+        deviceName = runCatching {
+            android.provider.Settings.Global.getString(context.contentResolver, "device_name")
+        }.getOrNull()?.ifBlank { null } ?: android.os.Build.MODEL
     }
+
+    /**
+     * Who wrote the handoff file. The id tells this install's own write apart
+     * from another device's; the name is only ever shown ("Continued from …"),
+     * so it is the one the user gave the phone, not a model code.
+     */
+    var deviceId: String = ""
+        private set
+    var deviceName: String = "Android"
+        private set
 
     fun updateTheme(value: Int) { theme = value; prefs.edit().putInt("theme", value).apply() }
 

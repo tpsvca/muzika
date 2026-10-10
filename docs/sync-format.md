@@ -125,3 +125,72 @@ else's change, however soon it arrives.
 Watching only pulls. Local edits are pushed as they happen, so there is no need
 to write the file back on every reload, and not doing so keeps two devices from
 taking turns rewriting it.
+
+## What is playing: `muzika-nowplaying.json`
+
+A second file, written into the same folder, carries **what is playing** from
+one device to another: pause on the desktop, press play on the phone, and the
+phone carries on with the same song, from the same spot, in the same shuffled
+order. And the other way round.
+
+It is kept out of the library file on purpose. It changes at every track and
+every pause; folded into the library it would rewrite that file constantly and
+turn every listening session into sync conflicts.
+
+```json
+{
+  "format": "muzika-nowplaying",
+  "version": 1,
+  "device_id": "0b6c2f1e-…",
+  "device": "Pixel 7 Pro",
+  "updated_at": 1790000000.5,
+  "playing": false,
+  "position_ms": 38207,
+  "duration_ms": 231000,
+  "cursor": 1,
+  "track_id": "khnokW3Mw24",
+  "shuffle": true,
+  "repeat": "none",
+  "queue": [
+    {"id": "khnokW3Mw24", "title": "Instant Crush", "artist": "Daft Punk",
+     "duration": 337, "thumb": "https://…", "source": "youtube", "url": null}
+  ],
+  "order": [0]
+}
+```
+
+- `queue` is the tracks in the order they were added; `order` is the sequence
+  actually played - a permutation of queue indices when shuffled - and
+  `cursor` is the index *into `order`* of the current track. Carrying the order
+  rather than re-shuffling is what keeps "the same shuffle" the same.
+- `track_id` names the current track. A reader trusts `cursor` only where that
+  track actually sits, and otherwise looks it up by id.
+- `repeat` is `none`, `all` or `one`. `updated_at` is in seconds, like the
+  library file. Tracks use the library file's track shape, always with
+  `source` and `url`.
+- `device_id` is a random id per install. A device never takes over its own
+  write. `device` is only ever shown: "Picked up … from Pixel 7 Pro".
+
+**When it is written.** When the device's own playback changes: a track
+starts, play or pause, a seek, the queue or shuffle or repeat changes - settled
+for 1.5 s so a burst writes once, and not while a stream is still resolving.
+Not on a timer: while `playing` is true a reader works the position out from
+`updated_at`, walking forward through `order` by each track's `duration`. Both
+players also write it when they quit. It is written under a temporary name
+Syncthing ignores (`.syncthing.<name>.tmp`) and renamed into place.
+
+**When it is taken over: the newest session wins.** Pressing play, skip or back
+on a device that is not playing, bringing its window or app to the front, or
+the widget redrawing, takes the file over when it came from another device and
+is newer than the last change this device made to its own playback. It arrives
+paused, at its position, with nothing loaded until play. A device that is
+playing never takes anything over; its own session is the newer one.
+
+**Limits.**
+- **Delivery speed.** A pause reaches the other device as fast as the sync
+  client carries the file, usually a few seconds on the same network.
+- **Writers that die.** A writer killed mid-song never says it stopped, so
+  winding forward stops after two hours.
+- **No remote control.** One device cannot pause another: starting on the
+  phone leaves the desktop playing until you pause it.
+- **Folder backend only.** The Dropbox backend has no shared folder for this file.
