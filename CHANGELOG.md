@@ -17,6 +17,11 @@ YouTube answers 403 once a stream URL goes stale, and a paused player can still 
 - **GNOME.** The same rule, on `_intended_playing`. Loading sets it, and pause clears it. A pipeline error while paused parks the track at its last position. A song that cannot be resolved is skipped only if you are still listening when the skip comes due, and pausing cancels that skip.
 - **GNOME, also fixed.** The stale-stream (403) retry while playing restarted the song from 0:00. It now resumes where the stream died, as Android already did.
 
+### Verified on the Pixel (release v1.14.1)
+- **Setup.** Played "Gimme All Your Lovin'", paused at 0:22, then turned the Pixel's network off (`svc wifi/data disable`). Simply pausing did not trigger an error, because the player had already buffered ahead. A seek to 3:11 while paused and offline forced a fetch, and ExoPlayer reported a real `Playback error … UnknownHostException (no network)`.
+- **While paused.** The app stayed on the same song at 3:11. It did not skip and made no sound. This is the situation that started "Afterglow" by itself in v1.14.0.
+- **After the network came back.** Play fetched a fresh stream and carried on from 3:11 (191.1 s, then 196.9 s five seconds later).
+
 ### Tests
 - **Android `PausedErrorTest`, 3 cases:**
   - a stream that dies while paused keeps the song, the spot and the silence
