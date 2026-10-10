@@ -131,3 +131,21 @@ def test_rescan_reports_success_when_syncthing_accepts(configured, monkeypatch):
     assert seen["url"].endswith("/rest/db/scan")
     assert seen["params"]["folder"] == "muzika-lib"
     assert seen["headers"]["X-API-Key"] == "abc123"
+
+
+def test_settings_says_whether_pauses_go_at_once(configured, tmp_path):
+    folder, _other = configured
+    assert "“muzika-lib”" in syncthing.status(folder)
+    assert "does not share" in syncthing.status(tmp_path / "elsewhere")
+    assert syncthing.status(None) == "Choose a sync folder first"
+
+
+def test_settings_without_syncthing(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "none"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "none"))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    syncthing.forget()
+    try:
+        assert "not set up" in syncthing.status(tmp_path)
+    finally:
+        syncthing.forget()

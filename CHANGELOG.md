@@ -1,3 +1,19 @@
+## 2026-10-10 — Desktop Settings: Syncthing status, no Dropbox help in folder mode
+
+### Fixed
+- **What**: with Method set to "Synced folder", the Dropbox row "How to get a token" no longer shows.
+- **Why**: reported from a screenshot of the desktop Sync settings. The row was never hidden, so it showed up next to the folder settings.
+
+### Added
+- **What**: a **Syncthing** row under the sync folder. It says whether this computer's Syncthing shares the folder, and under which id. It also says the desktop reads the API key by itself, and that on the phone the key is pasted in Muzika's Settings.
+- **Why**: v1.14.3 added an API key field on Android only, and the desktop had no way to show that it needs none.
+
+### Tests
+- **Desktop, 2 new tests:**
+  - the status text for a shared folder, an unshared folder and no folder
+  - the status text with no Syncthing set up
+- **Desktop suite:** 93 passed. The dialog was rendered and checked by eye.
+
 ## 2026-10-10 — A pause on the phone reaches the desktop in seconds (v1.14.3)
 
 ### Added

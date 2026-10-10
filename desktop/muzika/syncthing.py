@@ -106,6 +106,23 @@ def folder_id(path: str | os.PathLike) -> str | None:
     return None
 
 
+def status(path: str | os.PathLike | None) -> str:
+    """One line for Settings: whether pauses and library changes made here
+    are handed to Syncthing at once. Reads the config only, so it is instant."""
+    if path is None:
+        return "Choose a sync folder first"
+    if _config() is None:
+        return ("Syncthing is not set up on this computer. Changes go when "
+                "your sync service picks them up.")
+    ident = folder_id(path)
+    if ident is None:
+        return ("Syncthing does not share this folder. Changes go when your "
+                "sync service picks them up.")
+    return (f"Shares this folder as “{ident}”. Muzika reads Syncthing's API key "
+            "by itself here, so changes are sent at once. On the phone, paste "
+            "its key in Muzika's Settings.")
+
+
 def rescan(path: str | os.PathLike) -> bool:
     """Ask Syncthing to scan the folder holding `path`. Never raises."""
     config = _config()

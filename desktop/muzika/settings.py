@@ -10,6 +10,7 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from . import dropbox as dropbox_mod
 from . import local as local_mod
 from . import sync as sync_mod
+from . import syncthing as syncthing_mod
 from . import tasks
 
 log = logging.getLogger(__name__)
@@ -88,6 +89,11 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._folder_row.connect("activated", lambda *_: self._choose_folder())
         group.add(self._folder_row)
 
+        self._syncthing_row = Adw.ActionRow()
+        self._syncthing_row.set_title("Syncthing")
+        self._syncthing_row.set_subtitle_lines(0)
+        group.add(self._syncthing_row)
+
         self._token_row = Adw.PasswordEntryRow()
         self._token_row.set_title("Dropbox access token")
         self._token_row.set_text(sync_mod.get("dropbox_token") or "")
@@ -102,7 +108,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._dropbox_row.add_suffix(self._button("Test", self._test_dropbox))
         group.add(self._dropbox_row)
 
-        help_row = Adw.ActionRow()
+        self._help_row = help_row = Adw.ActionRow()
         help_row.set_title("How to get a token")
         help_row.set_subtitle(
             "App Console → Create app → Scoped access → App folder → "
@@ -145,8 +151,11 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _update_backend_rows(self) -> None:
         dropbox = sync_mod.backend() == sync_mod.BACKEND_DROPBOX
         self._folder_row.set_visible(not dropbox)
+        self._syncthing_row.set_visible(not dropbox)
+        self._syncthing_row.set_subtitle(syncthing_mod.status(sync_mod.sync_folder()))
         self._token_row.set_visible(dropbox)
         self._dropbox_row.set_visible(dropbox)
+        self._help_row.set_visible(dropbox)
         # The music still travels through a folder even on the Dropbox backend,
         # so say so rather than hiding the setting entirely.
         if self._share_row is not None:
@@ -178,6 +187,7 @@ class SettingsDialog(Adw.PreferencesDialog):
                 return
             sync_mod.set_sync_folder(folder.get_path())
             self._folder_row.set_subtitle(folder.get_path())
+            self._syncthing_row.set_subtitle(syncthing_mod.status(folder.get_path()))
             self.window.watch_sync_file()
             self._refresh_share_row()
             self._toast(f"Sync folder set to {folder.get_basename()}")
