@@ -22,6 +22,17 @@
 - **No remote control.** Starting on the phone does not pause the desktop.
 - **Folder backend only.** Dropbox sync has no folder for this file.
 
+### Verified end to end (release v1.14.0 on the Pixel, the real desktop player on Fedora)
+The desktop player ran in a harness against a scratch sync folder, with real YouTube streams through yt-dlp, so nothing reached the real `~/Muzika-Sync`. The file moved between the devices with `adb push` and `adb pull`, standing in for Syncthing.
+
+- **Desktop → phone.** The desktop shuffled "blues rock" (657 tracks), skipped once and paused "You Enjoy Myself" at 0:12.0. On the phone, play on the widget picked it up and played from 0:12; the app stayed closed. Skip on the phone then played "Gimme All Your Lovin'", the desktop's next track in its shuffled order.
+- **Phone → desktop.** The phone paused at 0:21.6 and wrote its file ("Pixel 7 Pro", `playing: false`). The desktop, started fresh, already showed that track before play was pressed. Play resumed it at 0:21.6, track 3 of 657, with the same upcoming order ("Sub", "Leave The Light On").
+- **Cleanup.** The test file was deleted from the Pixel afterwards. The Pixel's Syncthing is disconnected, so nothing reached the other devices.
+- **Desktop install updated.** The installed desktop app (`~/.local/share/muzika/venv`) was reinstalled from this commit while it was not running.
+
+### Seen during the test, not fixed here
+The Pixel had been left paused on "cardigan". About 25 minutes later its widget showed the next track, "Afterglow", so the player had moved on by itself. The likely path is the one seen at 10:12 that morning: a stream error while paused (YouTube 403 on a later range request) triggers the retry and the error-skip. Both call play unconditionally, so a paused player can start playing on its own. With handoff this matters more: a phone that wakes itself this way claims the "newest session". The desktop's error path has the same shape.
+
 ### Tests
 - Android `HandoffTest`, 10 cases:
   - the format both ways
