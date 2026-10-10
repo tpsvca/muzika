@@ -11,6 +11,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
 from . import api as api_mod
 from . import sources as source_mod
+from . import session as session_mod
 from . import sync as sync_mod
 from . import syncthing
 from . import tasks
@@ -41,6 +42,8 @@ class MuzikaWindow(Adw.ApplicationWindow):
         self._export_source = 0
         self._sync_monitor = None
         self._sync_reload_source = 0
+        self._handoff_monitor = None
+        self._handoff_source = 0
         self._own_write_at = 0.0
 
         self.set_title("Muzika")
@@ -474,6 +477,9 @@ class MuzikaWindow(Adw.ApplicationWindow):
         if getattr(self, "_sync_monitor", None) is not None:
             self._sync_monitor.cancel()
             self._sync_monitor = None
+        if getattr(self, "_handoff_monitor", None) is not None:
+            self._handoff_monitor.cancel()
+            self._handoff_monitor = None
         syncthing.forget()      # the folder may have moved between Syncthing shares
         folder = sync_mod.sync_folder()
         if folder is None or sync_mod.backend() != sync_mod.BACKEND_FOLDER:
@@ -481,6 +487,28 @@ class MuzikaWindow(Adw.ApplicationWindow):
         target = Gio.File.new_for_path(str(folder / sync_mod.FILENAME))
         self._sync_monitor = target.monitor_file(Gio.FileMonitorFlags.NONE, None)
         self._sync_monitor.connect("changed", self._on_sync_file_changed)
+
+        # What the phone is playing. Taking it over used to wait for play or
+        # for the window to be clicked, so a pause on the phone showed up here
+        # as "Nothing playing" until you guessed to do one of those. Now it
+        # appears the moment Syncthing delivers it - while this machine is not
+        # playing; when it is, its own session is the newer one.
+        handoff = Gio.File.new_for_path(str(folder / session_mod.HANDOFF_FILE))
+        self._handoff_monitor = handoff.monitor_file(Gio.FileMonitorFlags.NONE, None)
+        self._handoff_monitor.connect("changed", self._on_handoff_changed)
+
+    def _on_handoff_changed(self, _monitor, _file, _other, event) -> None:
+        if event not in (Gio.FileMonitorEvent.CHANGES_DONE_HINT,
+                         Gio.FileMonitorEvent.CREATED):
+            return
+        if self._handoff_source:
+            GLib.source_remove(self._handoff_source)
+        self._handoff_source = GLib.timeout_add(1000, self._follow_handoff)
+
+    def _follow_handoff(self) -> bool:
+        self._handoff_source = 0
+        self.player.follow_other_device(announce=True)
+        return False
 
     def _on_sync_file_changed(self, _monitor, _file, _other, event) -> None:
         if event not in (Gio.FileMonitorEvent.CHANGES_DONE_HINT,

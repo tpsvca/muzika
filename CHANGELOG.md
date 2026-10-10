@@ -1,3 +1,33 @@
+## 2026-10-10 — What the phone is playing shows up on the desktop by itself (v1.14.2)
+
+### Fixed
+- **What**: a pause on the phone now appears in the desktop app as soon as Syncthing delivers it. The song shows in the player bar, with a "Picked up … from Nothing Phone (3)" toast. Before, it stayed at "Nothing playing" until you pressed play or clicked the window. The phone app works the same way while it is open.
+- **Why**: reported. After pausing on the phone and waiting a few minutes, the desktop still said "Nothing playing".
+
+**What actually happened**, from Syncthing's event log:
+- The phone app (v1.14.1, confirmed in Obtainium) wrote `muzika-nowplaying.json` at 11:14:46. It was correct: "Good Morning Freedom", Blue Mink, 1:24.9 into the shuffled 465-track MyTop, paused.
+- **Phone-side delay.** The phone's Syncthing announced the file only at about 11:19:25, after a burst of reconnects. Its connection to the PC kept dropping with `read timeout`. Android was holding Syncthing back in the background, and it only picks up another app's write at its next scan.
+- **Desktop-side gap.** When the file did land at 11:19:33, the desktop app took no notice. Taking over waited for a press of play or a window click, so the window kept saying "Nothing playing".
+
+**Changes.**
+- **Desktop.** Watches `muzika-nowplaying.json` like the library file. A delivery while not playing is taken over within a second.
+- **Desktop.** Asks Syncthing to scan straight after writing its own handoff file, as the library file already did. The phone sees a desktop pause without Syncthing's own watcher delay.
+- **Android.** Checks every 4 s while the app is open. This costs a file stat, and the file is only read when it changed. The phone's FUSE storage does not reliably report another app's writes, so the check polls rather than relying on change notifications.
+- **Desktop version** is now 1.14.2. This is the first release since the release workflow started checking the desktop version against the tag.
+
+**What code cannot fix: the phone's Syncthing.**
+- Research into Syncthing-Fork (the Android Syncthing app, `com.github.catfriend1.syncthingfork`) found no intent another app can use to ask it to rescan.
+- Its only remote control is start, stop and follow, and that is off unless "Service Control by Broadcast" is enabled in its settings.
+- On Android it sees other apps' writes only through file-change notifications, which are not guaranteed, and a full rescan every 3600 s by default.
+- On the phone: give the Muzika folder a short full-rescan interval (60 s is cheap for a folder this small), and exempt Syncthing from battery optimisation.
+
+### Tests
+- **Desktop, 2 new tests:**
+  - a real Gio file monitor, with the file written under Syncthing's temporary name and renamed into place, triggers the takeover
+  - writing the handoff file asks Syncthing to scan that folder
+- **Desktop suite:** 91 passed.
+- **Android suite:** 64 tests, all passing. `assembleDebug` builds.
+
 ## 2026-10-10 — The GNOME app shows its real version
 
 ### Fixed

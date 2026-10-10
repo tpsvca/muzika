@@ -405,3 +405,40 @@ def test_a_song_that_cannot_be_found_is_only_skipped_if_you_are_still_listening(
 
     player.play()                               # listening: the failure moves on
     assert _spin(lambda: player.current["id"] == "v1", seconds=4.0)
+
+
+def test_writing_the_handoff_file_nudges_syncthing_at_once(isolated, monkeypatch):
+    """Left alone Syncthing waits out its watcher delay before it even looks;
+    a pause is the moment you reach for the phone."""
+    nudged: list = []
+    monkeypatch.setattr(session.syncthing, "rescan_async", lambda path: nudged.append(Path(path)))
+    session.publish(QUEUE, SHUFFLED, 1, True, "none", 1000, 180_000, False)
+    assert (isolated / session.HANDOFF_FILE).exists()
+    assert nudged == [isolated]
+
+
+def test_the_window_picks_up_a_handoff_the_moment_syncthing_delivers_it(isolated, tmp_path):
+    """Reported: the phone's pause reached this machine, but the window kept
+    saying "Nothing playing" - taking over waited for play or a click. The
+    file is now watched. Syncthing delivers by writing a temporary file and
+    renaming it into place, which is what is done here."""
+    window_mod = pytest.importorskip("muzika.window")
+    from types import SimpleNamespace
+    from gi.repository import Gio
+
+    followed: list[bool] = []
+    fake = SimpleNamespace(_handoff_source=0,
+                           player=SimpleNamespace(follow_other_device=lambda announce=False:
+                                                  followed.append(announce)))
+    fake._follow_handoff = lambda: window_mod.MuzikaWindow._follow_handoff(fake)
+
+    target = isolated / session.HANDOFF_FILE
+    monitor = Gio.File.new_for_path(str(target)).monitor_file(Gio.FileMonitorFlags.NONE, None)
+    monitor.connect("changed", lambda m, f, o, e: window_mod.MuzikaWindow._on_handoff_changed(fake, m, f, o, e))
+    _spin(lambda: False, seconds=0.2)
+
+    temp = isolated / ".syncthing.muzika-nowplaying.json.tmp"
+    temp.write_text(_phone_file(time.time()))
+    temp.replace(target)
+    assert _spin(lambda: followed == [True], seconds=5.0)
+    monitor.cancel()

@@ -27,6 +27,7 @@ import uuid
 from pathlib import Path
 
 from . import sync as sync_mod
+from . import syncthing
 from .db import DATA_DIR
 
 log = logging.getLogger(__name__)
@@ -165,6 +166,9 @@ def publish(queue, order, cursor, shuffle, repeat, position_ms, duration_ms, pla
     _write_atomically(target, encode_handoff(
         queue, order, cursor, shuffle, repeat, position_ms, duration_ms, playing,
         device_id(), device_name(), time.time()))
+    # Left alone, Syncthing waits out its watcher delay before it even looks.
+    # A pause is the moment you are about to pick the phone up, so tell it now.
+    syncthing.rescan_async(target.parent)
 
 
 def clear_local() -> None:
