@@ -29,6 +29,9 @@ object Prefs {
         private set
     var dropboxToken by mutableStateOf("")
         private set
+    /** Lets Muzika ask Syncthing to send a change now; see [Syncthing]. */
+    var syncthingKey by mutableStateOf("")
+        private set
     var autoSync by mutableStateOf(true)
         private set
     var sourceSoundCloud by mutableStateOf(true)
@@ -43,6 +46,7 @@ object Prefs {
         syncBackend = prefs.getString("backend", BACKEND_FOLDER) ?: BACKEND_FOLDER
         syncFolder = prefs.getString("folder", syncFolder) ?: syncFolder
         dropboxToken = prefs.getString("dropbox_token", "") ?: ""
+        syncthingKey = prefs.getString("syncthing_key", "") ?: ""
         autoSync = prefs.getBoolean("auto_sync", true)
         sourceSoundCloud = prefs.getBoolean("src_soundcloud", true)
         sourceBandcamp = prefs.getBoolean("src_bandcamp", true)
@@ -80,6 +84,10 @@ object Prefs {
 
     fun updateDropboxToken(value: String) {
         dropboxToken = value.trim(); prefs.edit().putString("dropbox_token", dropboxToken).apply()
+    }
+
+    fun updateSyncthingKey(value: String) {
+        syncthingKey = value.trim(); prefs.edit().putString("syncthing_key", syncthingKey).apply()
     }
 
     fun updateAutoSync(value: Boolean) {

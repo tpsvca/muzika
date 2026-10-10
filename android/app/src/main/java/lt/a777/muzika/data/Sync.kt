@@ -122,6 +122,7 @@ object Sync {
         if (!renamed) { temp.copyTo(file, overwrite = true); temp.delete() }
         // So the watcher does not read our own write back as an incoming change.
         SyncWatcher.noteOwnWrite()
+        if (file == defaultFile) Syncthing.scanAsync(file)
         true
     } catch (e: Exception) {
         Log.w(TAG, "export failed", e); false

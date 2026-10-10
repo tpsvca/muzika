@@ -12,8 +12,9 @@ with anything that syncs a directory - Nextcloud, Dropbox, a network share -
 so Syncthing not being installed, not running, or not sharing this folder are
 all perfectly normal and must cost nothing but a skipped call.
 
-There is no equivalent on Android: the Syncthing app keeps its configuration
-in private storage, so another app cannot read the API key it would need.
+On Android the Syncthing app keeps its configuration in private storage, so
+another app cannot read the key; there the user pastes it once in Settings,
+and data/Syncthing.kt does the same as this.
 """
 
 from __future__ import annotations

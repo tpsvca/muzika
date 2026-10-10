@@ -188,7 +188,13 @@ playing never takes anything over; its own session is the newer one.
 
 **Limits.**
 - **Delivery speed.** A pause reaches the other device as fast as the sync
-  client carries the file, usually a few seconds on the same network.
+  client carries the file. Both apps ask Syncthing to scan the file the
+  moment they write it (`POST /rest/db/scan?folder=<id>&sub=<file>`), so on
+  the same network it takes a few seconds. The desktop reads Syncthing's API
+  key from its config.xml. On Android that file is private to the Syncthing
+  app, so the key is pasted once in Settings → Syncthing API key; without it
+  the phone's Syncthing may not notice the write until its next full rescan,
+  hourly by default.
 - **Writers that die.** A writer killed mid-song never says it stopped, so
   winding forward stops after two hours.
 - **No remote control.** One device cannot pause another: starting on the

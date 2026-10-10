@@ -1,3 +1,26 @@
+## 2026-10-10 — A pause on the phone reaches the desktop in seconds (v1.14.3)
+
+### Added
+- **What**: Android Settings → Sync → **Syncthing API key**. With the key set, Muzika asks the Syncthing app to scan `muzika-nowplaying.json` the moment it writes it, and the library file after an export. **Test Syncthing** says whether Syncthing answered, whether the key is right, and whether it shares the sync folder. Saving the key runs the same check.
+- **Why**: reported ("still not syncink properly"). The phone had moved on to "Fake ID" and paused, but the PC still showed the 11:14 session 20 minutes later. Syncthing on Android does not notice another app's writes, and its full rescan runs hourly. The suggested workaround, a 60 s rescan interval, is not in the Syncthing app's folder screen, only in its Web GUI.
+
+### Details
+- The key cannot be read automatically: Syncthing-Fork keeps it in private storage. The desktop already reads it from `config.xml`.
+- The phone's Syncthing API is on `127.0.0.1:8384`. Muzika tries HTTPS first, accepting Syncthing's own certificate, then plain HTTP. The HTTPS path has not been tried against a real phone yet: Syncthing is stopped on the test Pixel. That certificate is accepted only for the loopback address, and cleartext is allowed only for `127.0.0.1`.
+- The folder is found through `/rest/config/folders` by its path, `/sdcard` and `/storage/emulated/0` counted as the same. A Syncthing folder that contains the Muzika folder works too.
+- Nothing is sent without a key, or when the backend is Dropbox. Failures are silent: Syncthing paused by its run conditions costs one failed request.
+- Desktop: no behaviour change. The version is 1.14.3 so it matches the tag.
+
+### Tests
+- **Android, 5 new tests (`SyncthingTest`)** against a stand-in Syncthing API on loopback:
+  - the file just written is the one scanned, in the right folder, with the key
+  - a sync folder inside a bigger Syncthing folder is scanned by its path in there
+  - with no key, no request is made
+  - the Settings check reports a wrong key, an unshared folder, and Syncthing not running
+  - `Handoff.publish` writes the file and asks for the scan
+- **Android suite:** 69 tests. SyncthingTest passed in three full runs in a row. In one of those runs the network-dependent TopPlaylistsTest failed, as it sometimes does. `assembleDebug` builds. Lint adds two warnings, both for the self-signed-certificate trust, which only applies to 127.0.0.1.
+- **Desktop suite:** 91 passed.
+
 ## 2026-10-10 — What the phone is playing shows up on the desktop by itself (v1.14.2)
 
 ### Fixed

@@ -2,6 +2,7 @@ package lt.a777.muzika.player
 
 import android.util.Log
 import lt.a777.muzika.data.Prefs
+import lt.a777.muzika.data.Syncthing
 import lt.a777.muzika.data.Track
 import org.json.JSONArray
 import org.json.JSONObject
@@ -53,7 +54,11 @@ object Handoff {
         val text = encode(queue, order, cursor, shuffle, repeat, positionMs, durationMs, playing,
             Prefs.deviceId, Prefs.deviceName, now)
         Session.enqueue {
-            if (target.parentFile?.isDirectory == true) Session.writeAtomically(target, text)
+            if (target.parentFile?.isDirectory == true) {
+                Session.writeAtomically(target, text)
+                // Otherwise Syncthing on Android may not notice it for an hour.
+                Syncthing.scanAsync(target)
+            }
         }
     }
 

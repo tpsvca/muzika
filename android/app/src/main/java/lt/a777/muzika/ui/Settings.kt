@@ -24,6 +24,7 @@ import lt.a777.muzika.data.LocalMusic
 import lt.a777.muzika.data.Prefs
 import lt.a777.muzika.data.Store
 import lt.a777.muzika.data.Sync
+import lt.a777.muzika.data.Syncthing
 import lt.a777.muzika.player.BatteryOptimisation
 import lt.a777.muzika.sources.Discover
 
@@ -47,6 +48,7 @@ fun SettingsScreen(nav: Nav) {
     }
     var folderDialog by remember { mutableStateOf(false) }
     var tokenDialog by remember { mutableStateOf(false) }
+    var syncthingDialog by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var clearDialog by remember { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
@@ -124,6 +126,32 @@ fun SettingsScreen(nav: Nav) {
                     leadingContent = { Icon(Icons.Rounded.Folder, null) },
                     modifier = Modifier.clickable { folderDialog = true },
                 )
+                ListItem(
+                    headlineContent = { Text("Syncthing API key") },
+                    supportingContent = {
+                        Text(
+                            if (Prefs.syncthingKey.isEmpty())
+                                "Optional. Syncthing on Android can take up to an hour to " +
+                                    "notice what Muzika writes. With its key, Muzika asks it " +
+                                    "to send a pause to your other devices at once."
+                            else "Set · tap to replace or clear"
+                        )
+                    },
+                    leadingContent = { Icon(Icons.Rounded.Key, null) },
+                    modifier = Modifier.clickable { syncthingDialog = true },
+                )
+                if (Prefs.syncthingKey.isNotEmpty()) {
+                    ListItem(
+                        headlineContent = { Text("Test Syncthing") },
+                        supportingContent = { Text("Check that Syncthing answers and shares this folder") },
+                        leadingContent = { Icon(Icons.Rounded.NetworkCheck, null) },
+                        modifier = Modifier.clickable {
+                            scope.launch {
+                                nav.toast(withContext(Dispatchers.IO) { Syncthing.describe() })
+                            }
+                        },
+                    )
+                }
             } else {
                 ListItem(
                     headlineContent = { Text("Dropbox access token") },
@@ -305,6 +333,34 @@ fun SettingsScreen(nav: Nav) {
             Prefs.updateDropboxToken(it)
             nav.toast(if (it.isBlank()) "Token cleared" else "Token saved")
         }
+    }
+    if (syncthingDialog) {
+        var key by remember { mutableStateOf(Prefs.syncthingKey) }
+        AlertDialog(
+            onDismissRequest = { syncthingDialog = false },
+            icon = { Icon(Icons.Rounded.Key, null) },
+            title = { Text("Syncthing API key") },
+            text = {
+                Column {
+                    Text("In the Syncthing app: Settings → Syncthing API Key (tap to copy), " +
+                        "or Web GUI → Actions → Settings → GUI → API Key.")
+                    OutlinedTextField(
+                        value = key, onValueChange = { key = it }, singleLine = true,
+                        label = { Text("API key") },
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    syncthingDialog = false
+                    Prefs.updateSyncthingKey(key)
+                    if (key.isBlank()) nav.toast("Key cleared")
+                    else scope.launch { nav.toast(withContext(Dispatchers.IO) { Syncthing.describe() }) }
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { syncthingDialog = false }) { Text("Cancel") } },
+        )
     }
     if (clearDialog) {
         AlertDialog(

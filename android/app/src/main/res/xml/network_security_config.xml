@@ -1,18 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Everything is HTTPS except one lyrics endpoint.
+  Everything is HTTPS except one lyrics endpoint and the Syncthing app on
+  this phone (bottom).
 
   Since Android 9 cleartext is refused by default, which is right - but it
   meant the KuGou lyrics provider could never answer, because its search host
   serves no HTTPS at all. Three requests per lookup were being made and
   silently refused, and a song whose only timed lyrics live there showed none.
 
-  So the exception is exactly one host, and only that host. The other two
+  So the lyrics exception is exactly one host, and only that host. The other two
   KuGou endpoints do serve HTTPS and are called over it.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">mobilecdn.kugou.com</domain>
+    </domain-config>
+    <!-- The Syncthing app's API on this phone, when its GUI runs without TLS.
+         Loopback never leaves the device. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
     </domain-config>
 </network-security-config>
