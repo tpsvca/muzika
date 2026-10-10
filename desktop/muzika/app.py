@@ -13,7 +13,7 @@ gi.require_version("Adw", "1")
 gi.require_version("Gst", "1.0")
 from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
 
-from . import tasks  # noqa: E402
+from . import __version__, tasks  # noqa: E402
 from .api import Api  # noqa: E402
 from .db import Store  # noqa: E402
 from .mpris import MprisServer  # noqa: E402
@@ -21,7 +21,7 @@ from .player import Player  # noqa: E402
 from .window import MuzikaWindow  # noqa: E402
 
 APP_ID = "lt.a777.Muzika"
-VERSION = "1.0.0"
+VERSION = __version__
 
 log = logging.getLogger(__name__)
 

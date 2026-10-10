@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "muzika"
-version = "1.0.0"
+dynamic = ["version"]
 description = "A GTK4/libadwaita music player for YouTube Music, SoundCloud, Bandcamp and your own files"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -46,3 +46,6 @@ include = ["muzika*"]
 
 [tool.setuptools.package-data]
 muzika = ["data/*.css"]
+
+[tool.setuptools.dynamic]
+version = { attr = "muzika.__version__" }

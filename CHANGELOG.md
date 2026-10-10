@@ -1,3 +1,16 @@
+## 2026-10-10 — The GNOME app shows its real version
+
+### Fixed
+- **What**: the desktop About dialog said **1.0.0**. It now says **1.14.1**, the release it belongs to.
+- **Why**: reported from the About dialog. Android takes its version from the git tag at release time. The desktop had its own version, written twice (`app.py` and `pyproject.toml`), and nothing ever compared it with the tag, so it stayed at 1.0.0 through every release.
+
+### Changed
+- **One place for the desktop version**: `desktop/muzika/__init__.py` (`__version__`). `pyproject.toml` reads it (`dynamic = ["version"]`), and the About dialog shows it.
+- **The release workflow checks it.** A `v*` tag whose number differs from `__version__` now fails before anything is built. A release therefore needs the version bumped first: edit `__init__.py`, commit, then tag.
+- **`tests/test_version.py`** keeps `__version__` equal to the newest `(vX.Y.Z)` in the CHANGELOG headings, and keeps `pyproject.toml` from repeating the number.
+
+No new release tag: the desktop code is unchanged apart from the label, and the Android app was already 1.14.1. Desktop suite: 89 passed. The installed copy (`~/.local/share/muzika/venv`) was reinstalled and reports `muzika-1.14.1`.
+
 ## 2026-10-10 — A paused player no longer starts playing by itself (v1.14.1)
 
 ### Fixed (Android and GNOME)
