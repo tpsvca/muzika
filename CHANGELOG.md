@@ -1,3 +1,36 @@
+## 2026-10-10 — Play on the widget resumes yesterday's song instead of opening Home
+
+### Fixed
+- **What**: the widget's play, next and previous now carry on from where you stopped - same track, same playlist, same shuffled order, same spot in the song - even after Android has killed the app. That holds for 30 days after the last listen.
+- **Why**: reported. You paused "Kryptonite" in a shuffled playlist one evening. The next morning the widget still showed it, but pressing play opened the app for a split second and then landed on Home.
+
+**Cause.** The queue lived only in memory. Android reaps a paused music app overnight, and the launcher keeps showing the widget's last picture, so it still read "Kryptonite". But the player behind it was empty, and the widget's rule for "nothing loaded" was to open the app. The flash of the playlist was the task's old screenshot, and Home was the cold start.
+
+**Fix.** A new `player/Session.kt` keeps the playback state on disk in two files under the app's private storage. The queue and its shuffled order go in one, written only when they change, because a 657-track playlist is ~150 KB. The current track, its position and the repeat mode go in the other, written on every track change, on pause and every 10 s while playing.
+
+On start, the player reads the saved state back. Nothing is loaded into ExoPlayer at that point, so no stream is resolved for a song nobody has asked for yet. Pressing play, from the widget, the mini player or Now Playing, then fetches the stream and starts the song at the saved position. Seeking before pressing play moves that position. Previous restarts the song.
+
+- **The widget** reads the session too. After a reboot it shows the saved track and progress rather than "Nothing playing". A tap shows **Starting…** while the stream resolves. The broadcast stays open, for at most 9 s, until sound starts, because once the widget's receiver returns nothing keeps a freshly started process alive. With no saved session at all, it still opens the app.
+- **Opening the app** after a reap now shows the saved track, paused, in the mini player.
+- **Mismatched files.** The two files are written separately, so they can disagree if the process dies between writes. The position file names its track, and it is only trusted where that track actually sits in the queue. Otherwise the track is looked up by id. If the track is gone, the queue starts from the top at 0:00 rather than applying another song's position.
+- **Expiry.** A session older than 30 days is ignored, which more than covers the week asked for. Listening refreshes the age, not only editing the queue.
+
+### Tests
+- `SessionTest`, 9 cases, all passing:
+  - the shuffled order, track and position round-trip exactly
+  - every track field survives, including Bandcamp and SoundCloud page URLs needed to re-resolve
+  - a week-old session restores, and one past 30 days does not
+  - a stale position follows its track by id
+  - damaged files restore nothing rather than crash
+  - the disk round-trip and clear work
+  - `MuzikaPlayer.restore()` comes back paused on the right track at the right position
+- Full unit suite: 51 tests in 12 suites, all passing. `assembleDebug` builds.
+
+### Limits
+- **Not yet confirmed on a phone.** The fix needs a release-signed APK, and the widget is on the phone that has no ADB.
+- **No resume for the first song after updating.** The session that was lost before this build was never saved. Resuming starts working from the first song played on the new version.
+- **Foreground-service start is assumed, not confirmed.** Android allows a foreground service to start after a widget tap, and the widget's playlist row already relies on that. Both paths should be checked once the release is on the phone.
+
 ## 2026-10-02 — "blues rock", and duplicates that slipped the old key
 
 ### Added

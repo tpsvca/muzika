@@ -15,8 +15,10 @@ import coil.transform.RoundedCornersTransformation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import lt.a777.muzika.R
 import lt.a777.muzika.data.Store
 import lt.a777.muzika.player.MuzikaPlayer
@@ -63,11 +65,6 @@ class NowPlayingWidget : AppWidgetProvider() {
     }
 
     /**
-     * A control is only meaningful once something is loaded. When the process
-     * was not even running there is no queue to act on, so open the app
-     * instead of silently doing nothing.
-     */
-    /**
      * Shuffle one of your playlists straight from the home screen.
      *
      * Shuffled rather than played in order: this row is for putting something
@@ -99,8 +96,37 @@ class NowPlayingWidget : AppWidgetProvider() {
         }
     }
 
+    /**
+     * Play, skip and back, including after Android has reaped the process.
+     *
+     * Attaching reads back the saved session, so the track the widget still
+     * shows is the one that plays - same queue, same shuffled order, from where
+     * it stopped. Only with no session at all is there nothing to act on, and
+     * then the app opens rather than the tap doing nothing.
+     *
+     * Resuming means resolving a stream first. The broadcast is held open
+     * until sound starts, because once onReceive returns nothing else keeps a
+     * freshly started process alive.
+     */
     private fun withPlayer(context: Context, action: () -> Unit) {
-        if (MuzikaPlayer.current != null) action() else openApp(context)
+        MuzikaPlayer.attach(context.applicationContext)
+        if (MuzikaPlayer.current == null) return openApp(context)
+        action()
+        if (!MuzikaPlayer.loading) return
+
+        pendingLabel = MuzikaPlayer.current?.title
+        val held = goAsync()
+        scope.launch {
+            try {
+                withTimeoutOrNull(HOLD_MS) {
+                    while (!MuzikaPlayer.isPlaying) delay(200)
+                }
+            } finally {
+                pendingLabel = null
+                refresh(context)
+                held.finish()
+            }
+        }
     }
 
     private fun openApp(context: Context) {
@@ -117,6 +143,9 @@ class NowPlayingWidget : AppWidgetProvider() {
         const val ACTION_PLAYLIST = "lt.a777.muzika.widget.PLAYLIST"
         const val EXTRA_PLAYLIST_ID = "playlist_id"
         private val CONTROL_ACTIONS = setOf(ACTION_TOGGLE, ACTION_NEXT, ACTION_PREVIOUS)
+
+        /** Under the ten seconds Android allows a held broadcast. */
+        private const val HOLD_MS = 9_000L
 
         /** Slots on the second row; RemoteViews cannot inflate a list. */
         private val PLAYLIST_SLOTS = intArrayOf(
@@ -186,6 +215,9 @@ class NowPlayingWidget : AppWidgetProvider() {
             )
 
         private fun render(context: Context, manager: AppWidgetManager, ids: IntArray) {
+            // After a reboot or a reaped process, show the saved track rather
+            // than "Nothing playing" - it is what play will resume.
+            MuzikaPlayer.restore(context)
             val track = MuzikaPlayer.current
             val views = RemoteViews(context.packageName, R.layout.widget_now_playing)
 

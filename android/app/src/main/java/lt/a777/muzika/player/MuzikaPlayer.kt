@@ -77,6 +77,17 @@ object MuzikaPlayer {
     private var recovering = false
     /** Counts tick() passes, so the widget is refreshed far less often. */
     private var widgetTicks = 0
+    /** Counts tick() passes between saves of the position. */
+    private var saveTicks = 0
+
+    /** Whether the saved session has been read back yet; it only ever is once. */
+    private var restored = false
+    /**
+     * Where a restored track should start. Nothing is loaded into ExoPlayer on
+     * restore - that means a network round trip for a stream nobody asked for
+     * yet - so the position waits here until play is pressed.
+     */
+    private var resumeAtMs = 0L
 
     // Observed by Compose
     var current by mutableStateOf<Track?>(null)
@@ -108,6 +119,40 @@ object MuzikaPlayer {
         get() = repeat != REPEAT_NONE || cursor + 1 < order.size
     val hasPrevious: Boolean
         get() = cursor > 0 || (exo?.currentPosition ?: 0) > 5000
+
+    /**
+     * True when a restored track is showing but nothing is loaded to play it:
+     * play has to resolve a stream first rather than just un-pause.
+     */
+    private val needsLoad: Boolean
+        get() = current != null && (exo?.mediaItemCount ?: 0) == 0
+
+    /**
+     * Read back what was playing before the process died, once.
+     *
+     * Needs no ExoPlayer, so the widget can call it to show the right track
+     * after a reboot without starting a player just to draw itself.
+     */
+    fun restore(appContext: Context) {
+        if (!::context.isInitialized) context = appContext.applicationContext
+        if (restored) return
+        restored = true
+        Session.open(context)
+        if (queue.isNotEmpty()) return
+        val saved = Session.load() ?: return
+        queue = saved.queue
+        order = saved.order.toMutableList()
+        cursor = saved.cursor
+        shuffle = saved.shuffle
+        repeat = saved.repeat
+        source = saved.source
+        resumeAtMs = saved.positionMs
+        positionMs = saved.positionMs
+        durationMs = saved.durationMs
+        queueView = order.mapNotNull { queue.getOrNull(it) }
+        queueIndex = cursor
+        current = order.getOrNull(cursor)?.let { queue.getOrNull(it) }
+    }
 
     fun attach(appContext: Context) {
         if (exo != null) return
@@ -159,6 +204,9 @@ object MuzikaPlayer {
                 override fun onIsPlayingChanged(playing: Boolean) {
                     isPlaying = playing
                     notifyWidget()
+                    // Pausing is the moment most likely to be the last one
+                    // before the process is reaped, so the exact spot is kept.
+                    savePosition()
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
@@ -175,13 +223,15 @@ object MuzikaPlayer {
                 }
             })
         }
+        restore(context)
+        if (repeat == REPEAT_ONE) exo?.repeatMode = Player.REPEAT_MODE_ONE
         tick()
     }
 
     private fun tick() {
         scope.launch {
             while (true) {
-                exo?.let { player ->
+                exo?.takeUnless { needsLoad }?.let { player ->
                     val position = player.currentPosition.coerceAtLeast(0)
                     positionMs = position
                     if (player.duration > 0) durationMs = player.duration
@@ -193,6 +243,12 @@ object MuzikaPlayer {
                     if (isPlaying && ++widgetTicks >= 6) {
                         widgetTicks = 0
                         notifyWidget()
+                    }
+                    // Every ten seconds while playing, so a process killed
+                    // mid-song resumes close to where it was.
+                    if (isPlaying && ++saveTicks >= 20) {
+                        saveTicks = 0
+                        savePosition()
                     }
                 }
                 kotlinx.coroutines.delay(500)
@@ -367,6 +423,7 @@ object MuzikaPlayer {
         } else {
             cursor = start?.takeIf { it in playable.indices } ?: 0
         }
+        saveQueue()
         publishQueue()
         loadCurrent()
     }
@@ -379,6 +436,7 @@ object MuzikaPlayer {
         val fresh = (base until base + playable.size).toMutableList()
         if (shuffle) fresh.shuffle()
         order.addAll(fresh)
+        saveQueue()
         publishQueue()
         if (cursor < 0) { cursor = 0; loadCurrent() } else prefetchNext()
     }
@@ -386,6 +444,7 @@ object MuzikaPlayer {
     fun playNext(track: Track) {
         queue = queue + track
         order.add((cursor + 1).coerceAtMost(order.size), queue.size - 1)
+        saveQueue()
         publishQueue()
     }
 
@@ -399,14 +458,16 @@ object MuzikaPlayer {
         order.removeAt(position)
         if (position < cursor) cursor--
         else if (position == cursor) { cursor--; next() }
+        saveQueue()
         publishQueue()
     }
 
     fun clear() {
         exo?.stop(); exo?.clearMediaItems(); queuedNext = null
         queue = emptyList(); order = mutableListOf(); cursor = -1
-        current = null; isPlaying = false; source = null
+        current = null; isPlaying = false; source = null; resumeAtMs = 0
         publishQueue()
+        Session.clear()
     }
 
     private fun publishQueue() {
@@ -414,6 +475,20 @@ object MuzikaPlayer {
         queueIndex = cursor
         current = order.getOrNull(cursor)?.let { queue.getOrNull(it) }
         notifyWidget()
+        savePosition()
+    }
+
+    /** The queue and its order - only when they change, since they can be large. */
+    private fun saveQueue() {
+        if (!::context.isInitialized) return
+        Session.saveQueue(queue, order.toList(), shuffle, source)
+    }
+
+    /** Which track and how far into it; cheap, so it is saved often. */
+    private fun savePosition() {
+        if (!::context.isInitialized || queue.isEmpty()) return
+        val position = if (needsLoad) resumeAtMs else exo?.currentPosition ?: positionMs
+        Session.savePosition(current, cursor, position.coerceAtLeast(0), durationMs, repeat)
     }
 
     /** Keeps the home-screen widget in step with whatever is playing. */
@@ -425,10 +500,14 @@ object MuzikaPlayer {
     // -------------------------------------------------------------- transport
 
     fun toggle() {
-        if (isPlaying) exo?.pause() else { ensureService(); exo?.play() }
+        if (isPlaying) exo?.pause() else play()
     }
 
-    fun play() { ensureService(); exo?.play() }
+    /** Un-pause - or, for a track restored from an earlier run, fetch it and pick up where it was. */
+    fun play() {
+        if (needsLoad) { loadCurrent(resumeAtMs); return }
+        ensureService(); exo?.play()
+    }
     fun pause() { exo?.pause() }
 
     fun next(user: Boolean = true) {
@@ -442,11 +521,18 @@ object MuzikaPlayer {
     }
 
     fun previous() {
+        if (needsLoad && resumeAtMs > 5000) { loadCurrent(); return }
         if ((exo?.currentPosition ?: 0) > 5000) { exo?.seekTo(0); return }
         if (cursor > 0) { cursor--; loadCurrent() } else exo?.seekTo(0)
     }
 
-    fun seekTo(ms: Long) { exo?.seekTo(ms.coerceAtLeast(0)) }
+    fun seekTo(ms: Long) {
+        // Nothing loaded yet: remember the spot for when play is pressed.
+        if (needsLoad) {
+            resumeAtMs = ms.coerceAtLeast(0); positionMs = resumeAtMs; savePosition(); return
+        }
+        exo?.seekTo(ms.coerceAtLeast(0))
+    }
 
     /** Named to avoid clashing with the JVM setter of the `shuffle` property. */
     fun applyShuffle(enabled: Boolean) {
@@ -462,11 +548,13 @@ object MuzikaPlayer {
             order.sorted().toMutableList()
         }
         currentIndex?.let { cursor = order.indexOf(it) }
+        saveQueue()
         publishQueue()
     }
 
     fun cycleRepeat() {
         repeat = (repeat + 1) % 3
+        savePosition()
         // Repeat-one is handed to ExoPlayer rather than done by hand: looping
         // through STATE_ENDED would drop the service out of the foreground on
         // every single pass. See [queuedNext].
@@ -477,8 +565,11 @@ object MuzikaPlayer {
 
     // --------------------------------------------------------------- loading
 
-    private fun loadCurrent() {
+    private fun loadCurrent(startAtMs: Long = 0L) {
         val track = order.getOrNull(cursor)?.let { queue.getOrNull(it) } ?: return
+        // Saved as the position while the stream resolves, so dying in that
+        // second or two does not lose a restored spot.
+        resumeAtMs = startAtMs
         publishQueue()
         loading = true
         resolveToken++
@@ -495,7 +586,7 @@ object MuzikaPlayer {
             }
             ensureService()
             queuedNext = null
-            exo?.setMediaItem(mediaItem(track, url))
+            exo?.setMediaItem(mediaItem(track, url), startAtMs)
             exo?.prepare()
             exo?.play()
             withContext(Dispatchers.IO) { Store.recordPlay(track) }
