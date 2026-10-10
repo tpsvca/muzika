@@ -102,6 +102,12 @@ class Player(GObject.Object):
         self._adopted_remote: str | None = None
         self._handoff_source = 0
         self._save_ticks = 0
+        # Where the pipeline last was, for when an error has already torn it
+        # down and it can no longer be asked.
+        self._last_position_ns = 0
+        # The skip that follows a track failing to resolve, still to happen.
+        # Pausing in the meantime cancels it.
+        self._skip_pending = False
 
         GLib.timeout_add(500, self._tick)
         self._restore()
@@ -277,6 +283,7 @@ class Player(GObject.Object):
 
     def pause(self) -> None:
         self._intended_playing = False
+        self._skip_pending = False
         if self._loaded:
             self._bin.set_state(Gst.State.PAUSED)
         self.emit("state-changed")
@@ -376,9 +383,14 @@ class Player(GObject.Object):
         # Kept as the position while the stream resolves, so dying in that
         # second or two does not lose a restored spot.
         self._resume_ns = max(0, int(start_ns))
+        self._last_position_ns = self._resume_ns
         self._loaded = False
         self._pending_seek_ns = None
         self._loading = True
+        # Every load is meant to be heard. Pausing before it arrives clears
+        # this, and then nothing below may start the sound.
+        self._intended_playing = True
+        self._skip_pending = False
         self._resolve_token += 1
         token = self._resolve_token
         self._bin.set_state(Gst.State.NULL)
@@ -399,7 +411,10 @@ class Player(GObject.Object):
             url, headers = result
             self._headers = headers
             self._loading = False
-            self._intended_playing = True
+            if not self._intended_playing:
+                # Paused while it was being fetched: stay on it, silent.
+                self._park(self._resume_ns)
+                return
             self._loaded = True
             self._bin.set_property("uri", url)
             if self._resume_ns > 0:
@@ -420,10 +435,14 @@ class Player(GObject.Object):
             if token != self._resolve_token:
                 return
             self._loading = False
+            wanted = self._intended_playing
             self._intended_playing = False
             self.emit("state-changed")
             self.emit("playback-error", f"Could not play “{track.get('title', '')}”: {exc}")
-            GLib.timeout_add_seconds(1, lambda: (self.next(user=False), False)[1])
+            # Move on only if you were listening, and only if you still are
+            # when the moment comes.
+            self._skip_pending = wanted
+            GLib.timeout_add_seconds(1, self._skip_after_failure)
 
         tasks.run_async(resolve, done, failed)
 
@@ -463,10 +482,46 @@ class Player(GObject.Object):
         except Exception as exc:  # noqa: BLE001 - non-fatal, playback may still work
             log.debug("could not apply stream headers: %s", exc)
 
+    def _skip_after_failure(self) -> bool:
+        if self._skip_pending:
+            self._skip_pending = False
+            self.next(user=False)
+        return False
+
+    def _park(self, at_ns: int) -> None:
+        """Drop a dead stream but keep the song and the spot - the same state as
+        a track restored after a restart: shown, paused, nothing loaded, so play
+        resolves a fresh URL and carries on from exactly here."""
+        self._resolve_token += 1        # a resolve in flight would start playback
+        self._bin.set_state(Gst.State.NULL)
+        self._intended_playing = False
+        self._loading = False
+        self._loaded = False
+        self._pending_seek_ns = None
+        self._skip_pending = False
+        self._retried_track = None
+        self._resume_ns = max(0, int(at_ns))
+        self.emit("state-changed")
+        # Locally only: nothing happened that another device should hear of.
+        self._save_position(handoff=False)
+
     def _on_bus_error(self, _bus, message) -> None:
         error, debug = message.parse_error()
         log.warning("gstreamer error: %s (%s)", error.message, debug)
+        if self._loaded and self._pending_seek_ns is None:
+            ok, position = self._bin.query_position(Gst.Format.TIME)
+            if ok and position > 0:
+                self._last_position_ns = position
         self._bin.set_state(Gst.State.NULL)
+
+        # Paused, a stream can still fail in the background - YouTube answers
+        # 403 once a URL goes stale. Every recovery below ends in playback, so
+        # a paused player used to start the music by itself, and with handoff
+        # also claim the session from the phone. Paused, do nothing you would
+        # hear: keep the song and the spot, and fetch afresh on play.
+        if not self._intended_playing:
+            self._park(self._last_position_ns)
+            return
 
         # "Forbidden" is YouTube rejecting a stream URL that extracted fine and
         # then went stale - a different address, an expired token, or a player
@@ -481,7 +536,8 @@ class Player(GObject.Object):
             log.info("stream was rejected; re-resolving %s", track.get("title", ""))
             self._api.forget_stream(track.get("id"))
             self._api.clear_stream_cache()
-            self._load_current()
+            # From where it died, not from the top.
+            self._load_current(start_ns=self._last_position_ns)
             return
 
         self._intended_playing = False
@@ -511,6 +567,8 @@ class Player(GObject.Object):
     def _tick(self) -> bool:
         if self.current is not None:
             position, duration = self.position_duration()
+            if self._loaded and self._pending_seek_ns is None and position > 0:
+                self._last_position_ns = position
             # A few seconds of real playback means the stream was fine, so the
             # track earns its 403 retry back. Without this a song that goes
             # stale twice in one session refuses the second recovery.

@@ -74,6 +74,21 @@ object MuzikaPlayer {
 
     /** Guards the one automatic retry of a failed track. */
     private var retriedCurrent = false
+    /**
+     * Whether you want sound right now - as opposed to whether there is any.
+     *
+     * Every recovery path used to end in play(): the retry after a stream
+     * error, the skip after a second one, a stream that finished resolving.
+     * So a player left paused, whose dead stream URL failed in the background
+     * (YouTube answers 403 once a URL goes stale), started playing the next
+     * song by itself - in a pocket, hours later. With handoff that also made
+     * it the "newest" session and stole it from the desktop.
+     *
+     * Set by play and by starting something; cleared by every pause - this
+     * app's, the notification's, unplugged headphones, a lost audio focus.
+     * Nothing automatic may make a sound unless it is set.
+     */
+    private var wantsPlay = false
     /** Stall detection: the last position we saw, and when it stopped moving. */
     private var lastPositionSeen = -1L
     private var stalledSince = 0L
@@ -165,7 +180,8 @@ object MuzikaPlayer {
 
     /** Back to a fresh process, for tests that share this singleton. */
     internal fun resetForTest() {
-        restored = false; adoptedRemote = null; localChangedAt = 0L
+        restored = false; adoptedRemote = null; localChangedAt = 0L; wantsPlay = false
+        retriedCurrent = false; recovering = false; loading = false; errorText = null
         queue = emptyList(); order = mutableListOf(); cursor = -1
         current = null; source = null; notice = null; resumeAtMs = 0
     }
@@ -269,6 +285,12 @@ object MuzikaPlayer {
                     prefetchNext()
                 }
 
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    // Pauses that do not come through pause(): headphones
+                    // unplugged, audio focus lost for good.
+                    if (!playWhenReady) wantsPlay = false
+                }
+
                 override fun onIsPlayingChanged(playing: Boolean) {
                     isPlaying = playing
                     notifyWidget()
@@ -278,16 +300,7 @@ object MuzikaPlayer {
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    // A dropped connection should not cost you the song. Try the
-                    // same track once with a freshly resolved URL, and only move
-                    // on if that fails too.
-                    if (!retriedCurrent) {
-                        retriedCurrent = true
-                        reloadCurrent(player.currentPosition)
-                        return
-                    }
-                    errorText = "Could not play “${current?.title.orEmpty()}”"
-                    next(user = false)
+                    onStreamError(player.currentPosition)
                 }
             })
         }
@@ -452,15 +465,59 @@ object MuzikaPlayer {
         )
         .build()
 
+    /**
+     * A stream failed. While playing, a dropped connection should not cost you
+     * the song: try it once more with a freshly resolved URL, and only move on
+     * if that fails too. While paused, do nothing you would hear - see
+     * [wantsPlay] - and only [park].
+     */
+    internal fun onStreamError(atMs: Long) {
+        if (!wantsPlay) { park(atMs); return }
+        if (!retriedCurrent) {
+            retriedCurrent = true
+            reloadCurrent(atMs)
+            return
+        }
+        errorText = "Could not play “${current?.title.orEmpty()}”"
+        next(user = false)
+    }
+
+    /**
+     * Drop a dead stream but keep the song and the spot. Same state as a track
+     * restored after a restart: shown, paused, with nothing loaded, so play
+     * resolves a fresh URL and carries on from exactly here.
+     */
+    private fun park(atMs: Long) {
+        dropQueuedNext()
+        resolveToken++          // a resolve still in flight would start playback
+        recovering = false
+        exo?.stop()
+        exo?.clearMediaItems()
+        resumeAtMs = atMs.coerceAtLeast(0)
+        positionMs = resumeAtMs
+        retriedCurrent = false
+        loading = false
+        // Locally only: nothing happened that another device should hear of.
+        savePosition(handoff = false)
+        notifyWidget()
+    }
+
     /** Re-resolve the stream and pick up where it stopped. */
     private fun reloadCurrent(resumeAt: Long) {
         val track = order.getOrNull(cursor)?.let { queue.getOrNull(it) } ?: return
         if (recovering) return
         recovering = true
         loading = true
+        val token = resolveToken
         scope.launch {
             val url = withContext(Dispatchers.IO) { Sources.resolve(track) }
+            if (token != resolveToken) return@launch
             recovering = false
+            if (!wantsPlay) {
+                // Paused while it was being fetched again.
+                park(resumeAt)
+                return@launch
+            }
             if (url == null) {
                 loading = false
                 errorText = "Lost the stream for “${track.title}”"
@@ -594,16 +651,18 @@ object MuzikaPlayer {
     // -------------------------------------------------------------- transport
 
     fun toggle() {
-        if (isPlaying) exo?.pause() else play()
+        // Pressed again while a song is still being fetched: that is a pause.
+        if (isPlaying || (loading && wantsPlay)) pause() else play()
     }
 
     /** Un-pause - or, for a track restored from an earlier run, fetch it and pick up where it was. */
     fun play() {
         followOtherDevice(announce = true)
         if (needsLoad) { loadCurrent(resumeAtMs); return }
+        wantsPlay = true
         ensureService(); exo?.play()
     }
-    fun pause() { exo?.pause() }
+    fun pause() { wantsPlay = false; exo?.pause() }
 
     fun next(user: Boolean = true) {
         if (user && !isPlaying) followOtherDevice(announce = true)
@@ -664,6 +723,8 @@ object MuzikaPlayer {
 
     private fun loadCurrent(startAtMs: Long = 0L) {
         val track = order.getOrNull(cursor)?.let { queue.getOrNull(it) } ?: return
+        // Every load is meant to be heard - pausing before it arrives says otherwise.
+        wantsPlay = true
         // Saved as the position while the stream resolves, so dying in that
         // second or two does not lose a restored spot.
         resumeAtMs = startAtMs
@@ -676,6 +737,11 @@ object MuzikaPlayer {
             val url = withContext(Dispatchers.IO) { Sources.resolve(track) }
             if (token != resolveToken) return@launch
             loading = false
+            if (!wantsPlay) {
+                // Paused while it was being fetched: stay on it, silent.
+                park(startAtMs)
+                return@launch
+            }
             if (url == null) {
                 errorText = "No stream for “${track.title}”"
                 next(user = false)

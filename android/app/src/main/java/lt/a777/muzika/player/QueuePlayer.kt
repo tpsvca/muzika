@@ -30,6 +30,14 @@ class QueuePlayer(inner: Player) : ForwardingPlayer(inner) {
     override fun hasNextMediaItem(): Boolean = MuzikaPlayer.hasNext
     override fun hasPreviousMediaItem(): Boolean = MuzikaPlayer.hasPrevious
 
+    // Play and pause from the notification, the lock screen or a headset go
+    // through the queue too: play has to load a parked or restored track, and
+    // pause has to be remembered so nothing restarts the sound behind it.
+    override fun play() = MuzikaPlayer.play()
+    override fun pause() = MuzikaPlayer.pause()
+    override fun setPlayWhenReady(playWhenReady: Boolean) =
+        if (playWhenReady) MuzikaPlayer.play() else MuzikaPlayer.pause()
+
     override fun seekToNext() = MuzikaPlayer.next()
     override fun seekToNextMediaItem() = MuzikaPlayer.next()
     override fun seekToPrevious() = MuzikaPlayer.previous()

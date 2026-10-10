@@ -1,3 +1,36 @@
+## 2026-10-10 — A paused player no longer starts playing by itself (v1.14.1)
+
+### Fixed (Android and GNOME)
+- **What**: a paused player stays paused. A stream that fails in the background now just leaves the song and the spot where they were. Play fetches a fresh stream and carries on from exactly there.
+- **Why**: reported during the v1.14.0 tests. The Pixel was left paused on "cardigan" and found 25 minutes later on the next song, "Afterglow". That is music out of nowhere, in a pocket. With handoff it also made the phone the "newest" session, so the desktop would then have picked up the phone's song instead of its own.
+
+**Cause.** Every recovery path ended in play, on both platforms:
+- the retry after a stream error
+- the skip after a second error
+- the skip after a song could not be resolved
+- a stream that finished resolving after you had already pressed pause
+
+YouTube answers 403 once a stream URL goes stale, and a paused player can still be fetching ahead. So the error arrived while paused, and the "recovery" started the music.
+
+**Fix.** Each player now tracks whether you *want* sound, separately from whether there is any. Nothing automatic starts playback without it.
+- **Android.** `wantsPlay` is set by play and by starting something. It is cleared by pause from any source: the app, the notification and lock screen (`QueuePlayer` now routes play and pause through the queue), unplugged headphones, and lost audio focus. A stream error while paused **parks** the track: the dead stream is dropped and the song and position are kept, the same state as a track restored after a restart. Pressing pause while a song is still being fetched now counts as a pause, and the fetch no longer starts it.
+- **GNOME.** The same rule, on `_intended_playing`. Loading sets it, and pause clears it. A pipeline error while paused parks the track at its last position. A song that cannot be resolved is skipped only if you are still listening when the skip comes due, and pausing cancels that skip.
+- **GNOME, also fixed.** The stale-stream (403) retry while playing restarted the song from 0:00. It now resumes where the stream died, as Android already did.
+
+### Tests
+- **Android `PausedErrorTest`, 3 cases:**
+  - a stream that dies while paused keeps the song, the spot and the silence
+  - while playing, a failure is retried once and then skipped in shuffled order
+  - pausing during a fetch keeps the song from starting
+- **Android full suite:** 64 tests, all passing. `assembleDebug` builds.
+- **Desktop, 4 new cases** on a real GStreamer pipeline. A real 403 is posted on the bus:
+  - paused stays silent and on the same song at the same spot, and play resumes from there
+  - while playing, a stale stream is fetched again and carries on past where it died
+  - pausing during a slow resolve keeps it silent
+  - an unresolvable song is skipped only while listening
+- Three of those four **fail against the previous `player.py`**, which shows they reproduce the bug. The fourth passed before too, because the old retry also played on.
+- **Desktop full suite:** 87 passed, three runs.
+
 ## 2026-10-10 — Carry what's playing between the desktop and the phone (v1.14.0)
 
 ### Added

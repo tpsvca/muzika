@@ -194,6 +194,12 @@ class _Api:
     def prefetch(self, _track):
         return None
 
+    def forget_stream(self, _video_id):
+        return None
+
+    def clear_stream_cache(self):
+        return None
+
 
 class _Store:
     def record_play(self, _track):
@@ -306,3 +312,96 @@ def test_playing_here_tells_the_other_devices(isolated, wav):
     player.save_now()
     assert json.loads(target.read_text())["playing"] is False
     player.stop()
+
+
+# ------------------------------------------- a paused player stays paused
+
+class _SlowApi(_Api):
+    """Resolving takes a moment, as it does with yt-dlp."""
+
+    def stream(self, track):
+        time.sleep(0.4)
+        return super().stream(track)
+
+
+class _DeadApi(_Api):
+    def stream(self, _track):
+        time.sleep(0.3)
+        raise RuntimeError("no stream")
+
+
+def _stale_url_error(player) -> None:
+    """What YouTube does to a URL that has gone stale: 403 Forbidden."""
+    error = GLib.Error.new_literal(Gst.ResourceError.quark(), "Forbidden",
+                                   int(Gst.ResourceError.OPEN_READ))
+    player._bin.post_message(Gst.Message.new_error(player._bin, error, "HTTP 403"))
+
+
+def _playing_at(player, seconds: float) -> None:
+    player.play()
+    assert _spin(lambda: player._bin.get_state(0)[1] == Gst.State.PLAYING
+                 and player.position_duration()[0] > seconds * Gst.SECOND)
+
+
+def test_a_stream_that_dies_while_paused_stays_silent_and_keeps_its_spot(isolated, wav):
+    """The bug: left paused, the player was found later on the next song,
+    playing - every recovery path ended in play."""
+    _local_session(position_ms=0)
+    player = _player(wav)
+    _playing_at(player, 2)
+    player.pause()
+    _spin(lambda: False, seconds=0.3)
+    paused_at = player.position_duration()[0]
+
+    _stale_url_error(player)
+    _spin(lambda: False, seconds=2.0)          # time for any retry or skip to happen
+
+    assert not player.playing
+    assert player._bin.get_state(0)[1] != Gst.State.PLAYING
+    assert player.current["id"] == "v0"        # not moved on
+    assert abs(player.position_duration()[0] - paused_at) < Gst.SECOND / 2
+
+    # Play fetches it afresh and carries on from that spot.
+    player.play()
+    assert _spin(lambda: player._bin.get_state(0)[1] == Gst.State.PLAYING
+                 and player.position_duration()[0] > paused_at)
+    assert player.position_duration()[0] < paused_at + 3 * Gst.SECOND
+
+
+def test_a_stale_stream_while_playing_is_fetched_again_from_where_it_died(isolated, wav):
+    _local_session(position_ms=0)
+    player = _player(wav)
+    _playing_at(player, 4)
+    _stale_url_error(player)
+    assert _spin(lambda: player._bin.get_state(0)[1] == Gst.State.PLAYING
+                 and player.position_duration()[0] > 4 * Gst.SECOND)
+    assert player.current["id"] == "v0" and player.playing
+
+
+def test_pausing_while_a_song_is_still_being_fetched_keeps_it_from_starting(isolated, wav):
+    _local_session(position_ms=7_000)
+    from muzika.player import Player
+    player = Player(_SlowApi(wav), _Store())
+    _players.append(player)
+    player.play()
+    assert player.playing                       # the button shows the press at once
+    player.toggle()                             # pressed again before sound arrived
+    _spin(lambda: False, seconds=1.5)
+    assert not player.playing
+    assert player._bin.get_state(0)[1] != Gst.State.PLAYING
+    assert player.current["id"] == "v0"
+    assert player.position_duration()[0] == 7 * Gst.SECOND
+
+
+def test_a_song_that_cannot_be_found_is_only_skipped_if_you_are_still_listening(isolated, wav):
+    _local_session(position_ms=0)
+    from muzika.player import Player
+    player = Player(_DeadApi(wav), _Store())
+    _players.append(player)
+    player.play()
+    player.pause()
+    _spin(lambda: False, seconds=2.0)
+    assert player.current["id"] == "v0"         # paused: stays put
+
+    player.play()                               # listening: the failure moves on
+    assert _spin(lambda: player.current["id"] == "v1", seconds=4.0)
