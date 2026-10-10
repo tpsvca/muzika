@@ -26,10 +26,18 @@ On start, the player reads the saved state back. Nothing is loaded into ExoPlaye
   - `MuzikaPlayer.restore()` comes back paused on the right track at the right position
 - Full unit suite: 51 tests in 12 suites, all passing. `assembleDebug` builds.
 
+### Verified on the Pixel 7 Pro (release v1.13.0, over ADB)
+The Pixel had a **debug** build of 1.11.1, which a release cannot update. It was uninstalled, with the user's approval, and the release APK (`CN=Muzika`, cert `a2ca9077…f9b75b`) installed in user 0. The widget was placed on the home screen by driving the launcher's widget picker with `input draganddrop`, so the "ADB cannot place a widget" note from 2026-10-01 no longer holds.
+
+- **App restart.** Shuffled a 37-song playlist, skipped once and paused "Mine" at 0:38, then killed the process. A cold start showed "Mine" paused in the mini player. Play resumed it at 0:38, and two skips followed the saved shuffled order (The Great War, then All You Had To Do Was Stay).
+- **Widget, process dead.** With no Muzika process running, play on the widget logged `Start proc … for broadcast NowPlayingWidget` and `Background started FGS: Allowed … BFGS denied: false`. The service went foreground, the saved track played, and the launcher kept focus, so the app never opened.
+- **Widget, position.** Paused from the widget at 0:38.2, killed the process, pressed play on the widget: the same track resumed from 0:38.
+- **Widget after a cold start.** Freshly placed with no process running, the widget showed the saved track rather than "Nothing playing".
+- **Not testable from a shell.** `am broadcast` to the widget is refused because its receiver is not exported, so only a real tap on a placed widget exercises this path.
+
 ### Limits
-- **Not yet confirmed on a phone.** The fix needs a release-signed APK, and the widget is on the phone that has no ADB.
 - **No resume for the first song after updating.** The session that was lost before this build was never saved. Resuming starts working from the first song played on the new version.
-- **Foreground-service start is assumed, not confirmed.** Android allows a foreground service to start after a widget tap, and the widget's playlist row already relies on that. Both paths should be checked once the release is on the phone.
+- **Seen during the test, not fixed here.** One track ("All You Had To Do Was Stay") failed with HTTP 403 twice. The automatic skip that followed started the next song even though pause had just been pressed: a skip after an error ignores a pause. That behaviour predates this change.
 
 ## 2026-10-02 — "blues rock", and duplicates that slipped the old key
 
