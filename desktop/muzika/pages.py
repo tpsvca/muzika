@@ -453,10 +453,13 @@ class SearchPage(BasePage):
             play_all = Gtk.Button.new_from_icon_name("media-playback-start-symbolic")
             play_all.add_css_class("flat")
             play_all.set_tooltip_text("Play all results")
-            play_all.connect("clicked", lambda _b: self.ctx.play_tracks(songs, 0, shuffle=False))
+            play_all.connect("clicked", lambda _b: self.ctx.play_tracks(
+                songs, 0, shuffle=False, source="search"))
             group.set_header_suffix(play_all)
+            # Marked as coming from a search: a song found here and heard out
+            # is followed by a radio built from it (see radio.py).
             for index, track in enumerate(songs):
-                group.add(self.ctx.make_song_row(track, songs, index))
+                group.add(self.ctx.make_song_row(track, songs, index, source="search"))
             box.append(group)
 
         by_kind: dict[str, list[dict]] = {}
@@ -490,10 +493,12 @@ class SearchPage(BasePage):
             play_all = Gtk.Button.new_from_icon_name("media-playback-start-symbolic")
             play_all.add_css_class("flat")
             play_all.set_tooltip_text("Play all")
-            play_all.connect("clicked", lambda _b, t=tracks: self.ctx.play_tracks(t, 0, shuffle=False))
+            play_all.connect("clicked", lambda _b, t=tracks, n=name: self.ctx.play_tracks(
+                t, 0, shuffle=False, source=f"search:{n}"))
             group.set_header_suffix(play_all)
             for index, track in enumerate(tracks):
-                group.add(self.ctx.make_song_row(track, tracks, index))
+                group.add(self.ctx.make_song_row(track, tracks, index,
+                                                 source=f"search:{name}"))
             box.append(group)
 
         self.show_content(self.scrolled(box))

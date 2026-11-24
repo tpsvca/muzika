@@ -11,7 +11,7 @@ import gi
 gi.require_version("Gst", "1.0")
 from gi.repository import GLib, GObject, Gst  # noqa: E402
 
-from . import session, tasks  # noqa: E402
+from . import radio as radio_mod, session, tasks  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -108,6 +108,13 @@ class Player(GObject.Object):
         # The skip that follows a track failing to resolve, still to happen.
         # Pausing in the meantime cancels it.
         self._skip_pending = False
+        # Song radio (see radio.py). How long the current track has actually
+        # been heard, the track that count belongs to, the radio already
+        # fetched for it, and the track a fetch has been started for.
+        self._heard_ms = 0
+        self._heard_track: str | None = None
+        self._song_radio: tuple[str, list[dict]] | None = None
+        self._song_radio_asked: str | None = None
 
         GLib.timeout_add(500, self._tick)
         self._restore()
@@ -306,6 +313,8 @@ class Player(GObject.Object):
             self.seek(0)
             self.play()
             return
+        if not user and self._start_song_radio():
+            return
         if self._cursor + 1 < len(self._order):
             self._cursor += 1
             self._load_current()
@@ -383,6 +392,12 @@ class Player(GObject.Object):
         # Kept as the position while the stream resolves, so dying in that
         # second or two does not lose a restored spot.
         self._resume_ns = max(0, int(start_ns))
+        if track["id"] != self._heard_track:
+            # A retry or a resume of the same track keeps what was heard.
+            self._heard_track = track["id"]
+            self._heard_ms = 0
+            self._song_radio = None
+            self._song_radio_asked = None
         self._last_position_ns = self._resume_ns
         self._loaded = False
         self._pending_seek_ns = None
@@ -445,6 +460,55 @@ class Player(GObject.Object):
             GLib.timeout_add_seconds(1, self._skip_after_failure)
 
         tasks.run_async(resolve, done, failed)
+
+    # ------------------------------------------------------------- song radio
+
+    def _prepare_song_radio(self, duration_ns: int) -> None:
+        """Once a looked-up song has been heard, get its radio ready.
+
+        Fetched while the song is still playing, so that when it ends the
+        radio starts as promptly as any next track would.
+        """
+        track = self.current
+        if track is None or self._song_radio_asked == track["id"]:
+            return
+        if not radio_mod.is_search_source(self._source) or self._repeat == REPEAT_ONE:
+            return
+        duration_ms = duration_ns // Gst.MSECOND if duration_ns > 0 else \
+            int(track.get("duration") or 0) * 1000
+        if not radio_mod.heard_enough(self._heard_ms, duration_ms):
+            return
+        seed_id = track["id"]
+        self._song_radio_asked = seed_id
+
+        def done(tracks):
+            if tracks and self.current is not None and self.current["id"] == seed_id:
+                self._song_radio = (seed_id, tracks)
+
+        tasks.run_async(lambda: self._api.song_radio(track), done,
+                        lambda exc: log.debug("song radio failed: %s", exc))
+
+    def _start_song_radio(self) -> bool:
+        """The looked-up song has ended: carry on with the radio built from it."""
+        track = self.current
+        ready = self._song_radio
+        self._song_radio = None
+        if track is None or ready is None or ready[0] != track["id"]:
+            return False
+        if not radio_mod.is_search_source(self._source):
+            return False
+        tracks = ready[1]
+        # The song stays in the queue as the thing just played, so Previous
+        # goes back to it; the rest of the search results make way.
+        self._queue = [track] + list(tracks)
+        self._order = list(range(len(self._queue)))
+        self._cursor = 1
+        self._source = radio_mod.SOURCE_PREFIX + track["id"]
+        self.emit("queue-changed")
+        self._save_queue()
+        self._load_current()
+        self.emit("notice", f"Radio from “{track.get('title', '')}”")
+        return True
 
     def _extend_with_radio(self) -> None:
         track = self.current
@@ -575,6 +639,9 @@ class Player(GObject.Object):
             if position > 3 * Gst.SECOND and self._retried_track is not None:
                 self._retried_track = None
             self.emit("position-changed", position, duration)
+            if self.playing and self._loaded and self._pending_seek_ns is None:
+                self._heard_ms += 500
+                self._prepare_song_radio(duration)
             # Every ten seconds while playing, so a crash resumes close to
             # where it was. Local only: other devices work the position out
             # from when the track started.

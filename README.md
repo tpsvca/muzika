@@ -50,6 +50,10 @@ back sensibly to its folder structure.
 - **Search** songs, albums, artists and playlists, with filters.
 - **Explore** — 36 of YouTube Music's moods and genres, each a shelf of curated
   playlists.
+- **Song radio** — search for a song, listen to it to the end, and what follows
+  is a radio built from it: YouTube Music's radio for that song (its style, mood
+  and feeling) with more by the same band threaded through, instead of the next
+  search result. Skipping still goes to the next result.
 - **Made for you** — your most-played artists seed radios, and the home page is
   built from them.
 - **Your library** — playlists you build, liked songs, saved albums and artists,

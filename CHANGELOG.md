@@ -1,3 +1,24 @@
+## 2026-11-24 — Song radio: a song you looked up and heard out starts its own radio (v1.15.0)
+
+### Added
+- **What**: search for a song, play it to the end, and a radio built from that song follows — on the desktop and on Android. It takes YouTube Music's radio for the song (style, mood, feeling) and threads more by the same band through it: the second track and every fourth after that, eight at most. The song itself stays in the queue as the thing just played; a "Radio from “…”" toast says what happened.
+- **Why**: requested. Until now the next search result followed, which is usually the same song again — live, remastered or a cover.
+- **What**: it only happens when the song was actually listened to (half of it or more), so dragging the seek bar to the end does not start a radio. Skipping goes to the next search result as before. Playlists, albums and radios are never replaced, and repeat-one wins.
+- **What**: other recordings of the same song ("- Live", "(Remastered)") are kept out of the radio, and a SoundCloud, Bandcamp or local song is matched to the catalogue first so it gets a radio too.
+- **Rules in one place per platform**: `desktop/muzika/radio.py` and `android/.../sources/SongRadio.kt`, pure and mirrored, with the same tests on both sides.
+
+### Changed
+- **Desktop**: the radio is fetched while the song is still playing, so it starts as promptly as any next track. Search rows now mark the queue as coming from a search (`source="search"`).
+- **Android**: the radio's first track is handed to ExoPlayer in place of the next search result before the song ends, so playback crosses over without reaching `STATE_ENDED` — which is what keeps it alive in the background.
+
+### Tests
+- Desktop: 106 passed (13 new in `tests/test_song_radio.py`: the blending rules, and the real player with a fake catalogue).
+- Android: `SongRadioTest` (8 new) passes. `TopPlaylistsTest."playlists with no plays still appear, newest first"` failed in 2 of 3 runs and passed in 1; it creates two playlists in the same millisecond and is not touched by this change.
+- Android 14 emulator, debug build: searched "black keys heavy soul", played the 2:09 result with the app in the background; at its end playback went straight into the radio (51-track queue, source `songradio:…`), no gap, no crash.
+
+### Library
+- New playlist **Modern Dirty Fuzz Blues and Blues Rock** (300 songs), written into `muzika-library.json`: 237 from the Spotify playlist of that name (243 listed, 4 of them repeats, 2 not on YouTube Music: "Coming Home" by Hidalgo/Dickinson/Nanji and "Done Loving You" by Chase Walker Band) plus 63 related songs picked from the radios of 60 of its tracks, two per artist at most.
+
 ## 2026-10-10 — The widget and the shade follow the desktop with the app closed (v1.14.4)
 
 ### Fixed

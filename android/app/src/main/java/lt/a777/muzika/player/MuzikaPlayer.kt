@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import lt.a777.muzika.data.Store
 import lt.a777.muzika.data.Track
+import lt.a777.muzika.sources.SongRadio
 import lt.a777.muzika.sources.Sources
 import lt.a777.muzika.widget.NowPlayingWidget
 
@@ -84,6 +85,22 @@ object MuzikaPlayer {
 
     /** Guards the one automatic retry of a failed track. */
     private var retriedCurrent = false
+
+    // Song radio - see [SongRadio]. A song found by searching and heard out is
+    // followed by a radio built from it instead of by the next search result.
+    /** How long the current track has actually been heard, and which track that is. */
+    private var heardMs = 0L
+    private var heardTrack: String? = null
+    /** The radio already fetched for the current track: its id, and the tracks. */
+    private var songRadio: Pair<String, List<Track>>? = null
+    /** The track a radio has been asked for, so it is only ever asked once. */
+    private var songRadioAsked: String? = null
+    /**
+     * The radio's first track is what ExoPlayer holds as its next item, in
+     * place of the next search result. The queue on screen is untouched until
+     * the song really ends: skipping still goes to the next result.
+     */
+    private var radioLinedUp = false
     /**
      * Whether you want sound right now - as opposed to whether there is any.
      *
@@ -217,6 +234,8 @@ object MuzikaPlayer {
         queue = emptyList(); order = mutableListOf(); cursor = -1
         current = null; source = null; notice = null; resumeAtMs = 0
         notificationDismissed = false; inFront = false
+        heardMs = 0; heardTrack = null; songRadio = null; songRadioAsked = null
+        radioLinedUp = false
     }
 
     /** Takes on a saved session, paused, with nothing loaded until play. */
@@ -349,6 +368,19 @@ object MuzikaPlayer {
 
                 override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
                     if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) return
+                    if (radioLinedUp) {
+                        // The looked-up song ended and ExoPlayer has crossed
+                        // into the radio's first track by itself.
+                        radioLinedUp = false
+                        if (startSongRadio()) {
+                            if (player.currentMediaItemIndex == 1) player.removeMediaItem(0)
+                            current?.let { track ->
+                                scope.launch(Dispatchers.IO) { Store.recordPlay(track) }
+                            }
+                            prefetchNext()
+                        }
+                        return
+                    }
                     val advanced = queuedNext ?: return
                     queuedNext = null
                     cursor = advanced
@@ -395,6 +427,7 @@ object MuzikaPlayer {
                     positionMs = position
                     if (player.duration > 0) durationMs = player.duration
                     watchForStall(position)
+                    countHeard()
                     // The widget's progress bar has to be pushed to the
                     // launcher; every 500ms would be wasteful, so it moves in
                     // ~3s steps, which is under half a percent of a typical
@@ -537,6 +570,15 @@ object MuzikaPlayer {
     private fun lineUpNext() {
         val player = exo ?: return
         if (queuedNext != null || player.mediaItemCount != 1) return
+        pendingSongRadio()?.let { tracks ->
+            // A radio is waiting for this song to end, so its first track goes
+            // where the next search result would have. Without a stream for it
+            // yet nothing is lined up at all: the wrong song must not follow.
+            val url = Sources.cachedUrl(tracks.first()) ?: return
+            player.addMediaItem(mediaItem(tracks.first(), url))
+            radioLinedUp = true
+            return
+        }
         val index = followingIndex() ?: return
         val track = order.getOrNull(index)?.let { queue.getOrNull(it) } ?: return
         val url = Sources.cachedUrl(track) ?: return
@@ -547,6 +589,7 @@ object MuzikaPlayer {
     /** Forget anything lined up - the queue underneath it has moved. */
     private fun dropQueuedNext() {
         queuedNext = null
+        radioLinedUp = false
         exo?.let { player ->
             while (player.mediaItemCount > player.currentMediaItemIndex + 1) {
                 player.removeMediaItem(player.mediaItemCount - 1)
@@ -635,6 +678,65 @@ object MuzikaPlayer {
             exo?.prepare()
             exo?.play()
         }
+    }
+
+    // ------------------------------------------------------------- song radio
+
+    /** Counts real listening, and gets the radio ready once there is enough. */
+    private fun countHeard() {
+        val track = current
+        if (track?.id != heardTrack) {
+            heardTrack = track?.id
+            heardMs = 0; songRadio = null; songRadioAsked = null
+        }
+        if (track == null || !isPlaying) return
+        heardMs += 500
+        if (songRadioAsked == track.id) return
+        if (!SongRadio.isSearchSource(source) || repeat == REPEAT_ONE) return
+        val duration = durationMs.takeIf { it > 0 } ?: (track.duration * 1000L)
+        if (!SongRadio.heardEnough(heardMs, duration)) return
+        songRadioAsked = track.id
+        // Fetched while the song is still playing, and its first stream too,
+        // so ExoPlayer can cross into the radio without ever reaching
+        // STATE_ENDED - see [queuedNext] for why that matters.
+        scope.launch {
+            val tracks = runCatching { SongRadio.build(track) }.getOrDefault(emptyList())
+            if (tracks.isEmpty() || current?.id != track.id) return@launch
+            songRadio = track.id to tracks
+            withContext(Dispatchers.IO) { Sources.prefetch(tracks.first()) }
+            if (current?.id != track.id) return@launch
+            dropQueuedNext()
+            lineUpNext()
+        }
+    }
+
+    /** The radio waiting for the current song to end, if there is one. */
+    private fun pendingSongRadio(): List<Track>? {
+        val ready = songRadio ?: return null
+        if (ready.first != current?.id || !SongRadio.isSearchSource(source)) return null
+        if (repeat == REPEAT_ONE) return null
+        return ready.second.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * The looked-up song has ended: the queue becomes that song followed by
+     * its radio, standing on the radio's first track. The song stays as the
+     * thing just played, so Previous goes back to it; the rest of the search
+     * results make way. Loading the track is left to the caller.
+     */
+    private fun startSongRadio(): Boolean {
+        val seed = current ?: return false
+        val tracks = pendingSongRadio() ?: return false
+        songRadio = null
+        queue = listOf(seed) + tracks
+        order = queue.indices.toMutableList()
+        cursor = 1
+        queuedNext = null
+        source = SongRadio.SOURCE_PREFIX + seed.id
+        saveQueue()
+        publishQueue()
+        notice = "Radio from “${seed.title}”"
+        return true
     }
 
     // ------------------------------------------------------------ queue edits
@@ -790,6 +892,9 @@ object MuzikaPlayer {
         if (user && !isPlaying) followOtherDevice(announce = true)
         if (order.isEmpty()) return
         if (repeat == REPEAT_ONE && !user) { exo?.seekTo(0); exo?.play(); return }
+        // Reached only when the radio's first stream was not ready in time to
+        // be lined up; the usual way in is the transition in the listener.
+        if (!user && startSongRadio()) { loadCurrent(); return }
         when {
             cursor + 1 < order.size -> { cursor++; loadCurrent() }
             repeat == REPEAT_ALL -> { cursor = 0; loadCurrent() }

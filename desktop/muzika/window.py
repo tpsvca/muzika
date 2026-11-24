@@ -540,13 +540,15 @@ class MuzikaWindow(Adw.ApplicationWindow):
         return False
 
     def make_song_row(self, track: dict, siblings: list[dict], position: int,
-                      index: int | None = None, show_thumb: bool = True) -> SongRow:
+                      index: int | None = None, show_thumb: bool = True,
+                      source: str | None = None) -> SongRow:
         row = SongRow(track, index=index, show_thumb=show_thumb)
         row.set_favourite(self.store.is_favourite(track["id"]))
         current = self.player.current
         row.set_now_playing(bool(current and current["id"] == track["id"]))
         self._song_rows.append(weakref.ref(row))
-        row.connect("play-requested", lambda _r: self.play_tracks(siblings, position))
+        row.connect("play-requested",
+                    lambda _r: self.play_tracks(siblings, position, source=source))
         row.connect("favourite-toggled", lambda r: self._on_favourite(r))
         row.connect("menu-requested", lambda r: self._show_song_menu(r))
         return row

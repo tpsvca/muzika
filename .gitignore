@@ -24,3 +24,4 @@ keystore.properties
 # --- Editors / OS -----------------------------------------------------------
 .DS_Store
 *.swp
+.gstack/

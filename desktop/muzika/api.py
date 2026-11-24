@@ -8,6 +8,7 @@ ever touches a raw ytmusicapi payload.
 from __future__ import annotations
 
 import logging
+import random
 import shutil
 import threading
 import time
@@ -22,6 +23,8 @@ import re
 import requests
 import yt_dlp
 from ytmusicapi import YTMusic
+
+from . import radio as radio_mod
 
 log = logging.getLogger(__name__)
 
@@ -595,6 +598,44 @@ class Api:
         data = self.ytm.get_watch_playlist(videoId=video_id, playlistId=playlist_id,
                                            limit=limit, shuffle=shuffle)
         return [n for n in (normalise(t) for t in data.get("tracks", [])) if n]
+
+    def song_radio(self, track: dict, limit: int = radio_mod.LIMIT) -> list[dict]:
+        """A radio grown from one song: its sound, and more by its band.
+
+        The song's own YouTube Music radio supplies style, mood and feeling;
+        the artist's catalogue supplies the band. `radio.blend` threads the
+        two together. Returns nothing when the song cannot be placed in the
+        catalogue at all - the caller then carries on as it would have.
+        """
+        video_id = track.get("id") or ""
+        if track.get("source") not in (None, "", "youtube"):
+            # A SoundCloud, Bandcamp or local song has no radio of its own, so
+            # find the same song in the catalogue and grow it from there.
+            wanted = radio_mod.song_key(track)
+            video_id = ""
+            query = f"{radio_mod.primary_artist(track.get('subtitle') or '')} {track.get('title') or ''}"
+            for found in self.search(query.strip(), filter_="songs", limit=5):
+                if radio_mod.song_key(found) == wanted:
+                    video_id = found["id"]
+                    break
+            if not video_id:
+                return []
+
+        data = self.ytm_local.get_watch_playlist(videoId=video_id, limit=limit)
+        raw = data.get("tracks") or []
+        similar = [n for n in (normalise(t) for t in raw) if n]
+
+        by_artist: list[dict] = []
+        artists = (raw[0].get("artists") or []) if raw else []
+        channel = next((a.get("id") for a in artists if a.get("id")), None)
+        if channel:
+            try:
+                by_artist = [t for t in self.artist_songs(channel, limit=60)
+                             if t.get("kind") in (SONG, VIDEO)]
+            except Exception as exc:  # noqa: BLE001 - the song's radio still stands
+                log.debug("artist songs for radio failed: %s", exc)
+            random.shuffle(by_artist)
+        return radio_mod.blend(track, similar, by_artist, limit=limit)
 
     def lyrics(self, video_id: str, track: dict | None = None,
                refresh: bool = False) -> dict | None:
